@@ -5,16 +5,15 @@ import * as THREE from 'three';
 interface CompanionEyeRigProps {
   companionPos: [number, number, number];
   companionRot: [number, number, number];
-  onCanvasCapture?: (dataUrl: string) => void;
 }
 
 export const CompanionEyeRig: React.FC<CompanionEyeRigProps> = ({
   companionPos,
   companionRot,
 }) => {
+  // Embodied 1st-person camera with 80° natural field of view
   const eyeCamera = useMemo(() => {
-    // 85° field of view, near plane starts at 0.05m to completely exclude head surface
-    const cam = new THREE.PerspectiveCamera(85, 512 / 384, 0.05, 600);
+    const cam = new THREE.PerspectiveCamera(80, 512 / 384, 0.1, 600);
     return cam;
   }, []);
 
@@ -33,29 +32,39 @@ export const CompanionEyeRig: React.FC<CompanionEyeRigProps> = ({
   }, []);
 
   useFrame(({ scene }) => {
-    // True line of sight angle: in our system, heading angle is companionRot[1]
+    // Exact look heading
     const heading = companionRot[1];
 
-    // Companion scale is 1.8x, so head height is at ~1.95m.
-    // Move 0.65m forward along the true facing vector so the ocular lens is
-    // strictly in FRONT of the blue companion's head and body.
-    const forwardDistance = 0.65;
-    const eyeX = companionPos[0] + Math.sin(heading) * forwardDistance;
-    const eyeY = companionPos[1] + 1.95;
-    const eyeZ = companionPos[2] + Math.cos(heading) * forwardDistance;
+    // Eye coordinates: companion head is at Y = companionPos[1] + 1.85m.
+    // We place the camera exactly at the eye center:
+    const eyeX = companionPos[0] + Math.sin(heading) * 0.25;
+    const eyeY = companionPos[1] + 1.85;
+    const eyeZ = companionPos[2] + Math.cos(heading) * 0.25;
 
     eyeCamera.position.set(eyeX, eyeY, eyeZ);
 
-    // Look straight forward into the horizon
-    const lookDist = 30.0;
-    const targetX = eyeX + Math.sin(heading) * lookDist;
-    const targetZ = eyeZ + Math.cos(heading) * lookDist;
+    // Gaze forward into world
+    const targetX = eyeX + Math.sin(heading) * 20.0;
+    const targetZ = eyeZ + Math.cos(heading) * 20.0;
     const targetY = eyeY - 0.1;
 
     eyeCamera.lookAt(targetX, targetY, targetZ);
 
     if (offscreenRendererRef.current) {
+      // CRITICAL: Hide the companion's own mesh from its own first-person render pass!
+      const compMesh = scene.getObjectByName('COMPANION_ACTOR_GROUP');
+      const wasVisible = compMesh ? compMesh.visible : true;
+      if (compMesh) {
+        compMesh.visible = false;
+      }
+
+      // Render the true first-person pass
       offscreenRendererRef.current.render(scene, eyeCamera);
+
+      // Restore visibility for the main player camera pass
+      if (compMesh) {
+        compMesh.visible = wasVisible;
+      }
     }
   });
 

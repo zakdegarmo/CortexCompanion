@@ -27,11 +27,9 @@ export const FleshGolem: React.FC<FleshGolemProps> = ({
   const groupRef = useRef<THREE.Group>(null);
   const { scene, animations } = useGLTF(modelPath);
 
-  // Reusable quaternions to completely eliminate Euler gimbal wrap jitter
-  const currentQuat = useMemo(() => new THREE.Quaternion(), []);
   const targetQuat = useMemo(() => new THREE.Quaternion(), []);
 
-  // CRITICAL: Clone armature with SkeletonUtils to retain bone weights
+  // Clone armature with SkeletonUtils
   const clonedScene = useMemo(() => {
     const clone = SkeletonUtils.clone(scene) as THREE.Group;
 
@@ -99,20 +97,23 @@ export const FleshGolem: React.FC<FleshGolemProps> = ({
 
   }, [currentAnimation, actions]);
 
-  // Smooth spherical quaternion interpolation (SLERP) + sub-frame position lerp
+  // Smooth position & rotation lerping
   useFrame((_, delta) => {
     if (groupRef.current) {
-      // Smooth position following
       groupRef.current.position.lerp(new THREE.Vector3(...position), Math.min(delta * 22, 1));
-
-      // Slerp orientation via quaternions to completely prevent 360-degree angle flips
       targetQuat.setFromEuler(new THREE.Euler(rotation[0], rotation[1], rotation[2], 'YXZ'));
       groupRef.current.quaternion.slerp(targetQuat, Math.min(delta * 14, 1));
     }
   });
 
   return (
-    <group ref={groupRef} position={position} scale={1.8} dispose={null}>
+    <group 
+      ref={groupRef} 
+      name={isCompanion ? "COMPANION_ACTOR_GROUP" : "PLAYER_ACTOR_GROUP"}
+      position={position} 
+      scale={1.8} 
+      dispose={null}
+    >
       <primitive object={clonedScene} />
 
       {/* Floating Name Beacon */}
