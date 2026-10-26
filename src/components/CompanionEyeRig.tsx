@@ -5,28 +5,26 @@ import * as THREE from 'three';
 interface CompanionEyeRigProps {
   companionPos: [number, number, number];
   companionRot: [number, number, number];
-  onFrameUpdate?: (gl: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera) => void;
   onCanvasCapture?: (dataUrl: string) => void;
 }
 
 export const CompanionEyeRig: React.FC<CompanionEyeRigProps> = ({
   companionPos,
   companionRot,
-  onCanvasCapture
 }) => {
+  // Embodied 1st-person camera with 80° natural human field-of-view
   const eyeCamera = useMemo(() => {
-    const cam = new THREE.PerspectiveCamera(65, 512 / 384, 0.1, 500);
+    const cam = new THREE.PerspectiveCamera(80, 512 / 384, 0.05, 500);
     return cam;
   }, []);
 
-  // Offscreen auxiliary canvas for zero-overhead snapshot captures
   const offscreenRendererRef = useRef<THREE.WebGLRenderer | null>(null);
 
   useEffect(() => {
     const canvas = document.createElement('canvas');
     canvas.width = 384;
     canvas.height = 288;
-    const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, preserveDrawingBuffer: true });
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
     offscreenRendererRef.current = renderer;
 
     return () => {
@@ -35,19 +33,23 @@ export const CompanionEyeRig: React.FC<CompanionEyeRigProps> = ({
   }, []);
 
   useFrame(({ scene }) => {
-    // Companion eye coordinate (~1.65m height above terrain)
-    const eyeX = companionPos[0];
-    const eyeY = companionPos[1] + 1.65;
-    const eyeZ = companionPos[2];
+    const lookAngle = companionRot[1];
+
+    // The mannequin eye socket height is at ~1.78m.
+    // We nudge the camera 0.35m forward along its facing heading so the lens sits
+    // directly in front of the skull/face surface, completely eliminating any back-of-head clipping!
+    const forwardOffset = 0.35;
+    const eyeX = companionPos[0] + Math.sin(lookAngle) * forwardOffset;
+    const eyeY = companionPos[1] + 1.78;
+    const eyeZ = companionPos[2] + Math.cos(lookAngle) * forwardOffset;
 
     eyeCamera.position.set(eyeX, eyeY, eyeZ);
 
-    // Look vector
-    const lookAngle = companionRot[1];
-    const lookDist = 12.0;
+    // Look target directly forward along the companion's line of sight
+    const lookDist = 20.0;
     const targetX = eyeX + Math.sin(lookAngle) * lookDist;
     const targetZ = eyeZ + Math.cos(lookAngle) * lookDist;
-    const targetY = eyeY - 0.2;
+    const targetY = eyeY - 0.1; // slight natural level gaze
 
     eyeCamera.lookAt(targetX, targetY, targetZ);
 
@@ -56,7 +58,6 @@ export const CompanionEyeRig: React.FC<CompanionEyeRigProps> = ({
     }
   });
 
-  // Expose global capture hook for instant Base64 extraction
   useEffect(() => {
     (window as any).__captureCompanionVision = () => {
       if (offscreenRendererRef.current) {
