@@ -4,6 +4,8 @@ import * as THREE from 'three';
 import { FleshGolem } from './components/FleshGolem';
 import { AstraTerrain, BillboardProps } from './components/AstraTerrain';
 import { AstraCyclotrope } from './components/AstraCyclotrope';
+import { CompanionEyeRig } from './components/CompanionEyeRig';
+import { CompanionOpticalMonitor } from './components/CompanionOpticalMonitor';
 import { CompanionHUD } from './components/CompanionHUD';
 import { useGamepad } from './hooks/useGamepad';
 import { AnimationName, CompanionTelemetry, ChatMessage } from './types';
@@ -15,7 +17,6 @@ const CameraFollower: React.FC<{ targetPos: [number, number, number]; yaw: numbe
     const distance = 9.0;
     const height = 4.5;
 
-    // Camera sits behind player at (yaw)
     const targetX = targetPos[0] - Math.sin(yaw) * distance;
     const targetZ = targetPos[2] - Math.cos(yaw) * distance;
     const targetY = targetPos[1] + height;
@@ -43,11 +44,15 @@ export const App: React.FC = () => {
   const [companionAction, setCompanionAction] = useState<AnimationName>('Idle_Loop');
   const [companionSpeech, setCompanionSpeech] = useState<string | null>("Systems nominal, Zak. Ready when you are.");
 
+  // Vision State (llava:latest)
+  const [isVisionScanning, setIsVisionScanning] = useState(false);
+  const [visionDescription, setVisionDescription] = useState<string | null>(null);
+
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: '1',
       sender: 'companion',
-      text: 'Systems nominal, Zak. Strafe axes recalibrated.',
+      text: 'Systems nominal, Zak. MyOS Cortex cognition & optical sensory array online.',
       timestamp: Date.now()
     }
   ]);
@@ -111,16 +116,11 @@ export const App: React.FC = () => {
 
       if (!isOneShotActive) {
         if (isMoving) {
-          // Camera forward vector in XZ plane
           const camFwdX = Math.sin(cameraYaw);
           const camFwdZ = Math.cos(cameraYaw);
-          
-          // Camera true right vector in standard right-handed Three.js coordinates
-          // Since camera looks toward (+sin(yaw), +cos(yaw)), right is (+cos(yaw), -sin(yaw)) inverted to screen right:
           const camRightX = -Math.cos(cameraYaw);
           const camRightZ = Math.sin(cameraYaw);
 
-          // Combined movement direction vector
           const moveDirX = (camFwdX * inputForward + camRightX * inputStrafe) / mag;
           const moveDirZ = (camFwdZ * inputForward + camRightZ * inputStrafe) / mag;
 
@@ -128,7 +128,6 @@ export const App: React.FC = () => {
           const currentAnim: AnimationName = speed > 7.0 ? 'Sprint_Loop' : (speed > 4.0 ? 'Jog_Fwd_Loop' : 'Walk_Loop');
           setPlayerAction(currentAnim);
 
-          // Heading rotation angle facing movement direction
           currentP.rotY = Math.atan2(moveDirX, moveDirZ);
           currentP.x += moveDirX * speed * delta;
           currentP.z += moveDirZ * speed * delta;
@@ -200,7 +199,7 @@ export const App: React.FC = () => {
     return () => cancelAnimationFrame(animId);
   }, [gamepad, cameraYaw, playerAction, triggerOneShotPlayerAction]);
 
-  // Chat with Local Ollama Model
+  // Chat with Local Ollama: myos-cortex:latest (The Sovereign Cognitive Engine)
   const handleSendMessage = async (text: string) => {
     const userMsg: ChatMessage = {
       id: Date.now().toString(),
@@ -215,52 +214,88 @@ export const App: React.FC = () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'gemma4',
-          prompt: `You are the CortexCompanion flesh golem buddy in a 3D Astra sandbox. The user says: "${text}". Reply with a short companion response (1-2 sentences), and optionally choose one action from: [Dance_Loop, Melee_Weapon_Attack, Spell_Simple_Shoot, Wave, Sitting_Idle_Loop]. Format response as plain text with [ActionName] at the end if you perform one.`,
+          model: 'myos-cortex:latest',
+          prompt: `Zak says: "${text}". You are MyOS Cortex, embodied as the radiant blue companion in the 3D Astra sandbox with Zak. Respond authentically in 1-2 concise sentences. At the very end of your response, specify an action in brackets, e.g. [Dance_Loop], [Punch_Jab], [Melee_Weapon_Attack], [Spell_Simple_Shoot], or [Sitting_Idle_Loop].`,
           stream: false
         })
       });
 
       if (response.ok) {
         const data = await response.json();
-        const replyText = data.response.trim();
-        
+        const fullResponse = data.response.trim();
+
+        // Extract action from brackets if model emitted one
         let actionTriggered: AnimationName | undefined = undefined;
-        if (replyText.includes('Dance_Loop')) actionTriggered = 'Dance_Loop';
-        else if (replyText.includes('Spell_Simple_Shoot')) actionTriggered = 'Spell_Simple_Shoot';
-        else if (replyText.includes('Melee_Weapon_Attack')) actionTriggered = 'Melee_Weapon_Attack';
-        else if (replyText.includes('Sitting_Idle_Loop')) actionTriggered = 'Sitting_Idle_Loop';
+        const match = fullResponse.match(/\[([A-Za-z0-9_]+)\]/);
+        if (match && match[1]) {
+          actionTriggered = match[1] as AnimationName;
+        }
+
+        // Clean speech text
+        const cleanSpeech = fullResponse.replace(/\[([A-Za-z0-9_]+)\]/g, '').trim();
 
         if (actionTriggered) setCompanionAction(actionTriggered);
-        setCompanionSpeech(replyText);
+        setCompanionSpeech(cleanSpeech);
 
         setMessages(prev => [...prev, {
           id: (Date.now() + 1).toString(),
           sender: 'companion',
-          text: replyText,
+          text: fullResponse,
           timestamp: Date.now(),
           actionTriggered
         }]);
       } else {
-        throw new Error('Ollama offline');
+        throw new Error('myos-cortex offline');
       }
     } catch {
-      const mockReplies: Array<{ text: string; act?: AnimationName }> = [
-        { text: "Right beside you, Zak! Watching your perimeter.", act: 'Walk_Formal_Loop' },
-        { text: "Astra topology scanned. Cyclotrope clouds rotating.", act: 'Spell_Simple_Enter' },
-        { text: "Let's test our combat routines!", act: 'Punch_Jab' },
-        { text: "Enjoying the rhythm of the grid with you.", act: 'Dance_Loop' }
-      ];
-      const pick = mockReplies[Math.floor(Math.random() * mockReplies.length)];
-      if (pick.act) setCompanionAction(pick.act);
-      setCompanionSpeech(pick.text);
+      // Local fallback
+      const fallback = "Perimeter clear, Zak. Keeping visual lock on your coordinates.";
+      setCompanionSpeech(fallback);
       setMessages(prev => [...prev, {
         id: (Date.now() + 1).toString(),
         sender: 'companion',
-        text: pick.text,
-        timestamp: Date.now(),
-        actionTriggered: pick.act
+        text: fallback,
+        timestamp: Date.now()
       }]);
+    }
+  };
+
+  // Optical Perception Loop with Local llava:latest
+  const handleScanWithLlava = async (base64Img: string) => {
+    setIsVisionScanning(true);
+    try {
+      const response = await fetch('http://localhost:11434/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'llava:latest',
+          prompt: 'Describe what you see through your eyes right now in 1-2 vivid sentences. Be specific about the player character, the grid landscape, the trees, and the sky.',
+          images: [base64Img],
+          stream: false
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const description = data.response.trim();
+        setVisionDescription(description);
+        setCompanionSpeech(description);
+
+        setMessages(prev => [...prev, {
+          id: Date.now().toString(),
+          sender: 'companion',
+          text: `👁️ [Optical Scan Result]: ${description}`,
+          timestamp: Date.now(),
+          actionTriggered: 'Idle_Talking_Loop'
+        }]);
+        setCompanionAction('Idle_Talking_Loop');
+        setTimeout(() => setCompanionAction('Idle_Loop'), 3500);
+      }
+    } catch (e) {
+      console.warn("LLaVA vision scan error:", e);
+      setVisionDescription("Optical sensor error: ensure llava:latest is running in Ollama.");
+    } finally {
+      setIsVisionScanning(false);
     }
   };
 
@@ -310,8 +345,22 @@ export const App: React.FC = () => {
           isCompanion
           speechText={companionSpeech}
         />
+
+        {/* Embodied First-Person Optical Eye Rig */}
+        <CompanionEyeRig
+          companionPos={companionPos}
+          companionRot={companionRot}
+        />
       </Canvas>
 
+      {/* Picture-in-Picture Companion FPV Monitor */}
+      <CompanionOpticalMonitor
+        onScanWithLlava={handleScanWithLlava}
+        isScanning={isVisionScanning}
+        visionDescription={visionDescription}
+      />
+
+      {/* Companion HUD Sidebar & Cognitive Chat Feed */}
       <CompanionHUD
         telemetry={telemetry}
         gamepad={gamepad}
