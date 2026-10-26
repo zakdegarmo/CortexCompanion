@@ -2,14 +2,22 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { FleshGolem } from './components/FleshGolem';
-import { AstraTerrain, BillboardProps } from './components/AstraTerrain';
+import { AstraTerrain } from './components/AstraTerrain';
 import { AstraCyclotrope } from './components/AstraCyclotrope';
+import { CardboardPropField, InteractiveProp } from './components/CardboardPropField';
 import { CompanionEyeRig } from './components/CompanionEyeRig';
 import { CompanionOpticalMonitor } from './components/CompanionOpticalMonitor';
 import { CompanionHUD } from './components/CompanionHUD';
 import { useGamepad } from './hooks/useGamepad';
 import { AnimationName, CompanionTelemetry, ChatMessage } from './types';
 import { getAstraElevation } from './utils/elevation';
+import {
+  saveEpisode,
+  getAllEpisodes,
+  format4DCoordinate,
+  queryMemories,
+  MemoryEpisode
+} from './services/SpatiotemporalMemory';
 
 // Camera follower rig tracking player avatar
 const CameraFollower: React.FC<{ targetPos: [number, number, number]; yaw: number }> = ({ targetPos, yaw }) => {
@@ -44,6 +52,22 @@ export const App: React.FC = () => {
   const [companionAction, setCompanionAction] = useState<AnimationName>('Idle_Loop');
   const [companionSpeech, setCompanionSpeech] = useState<string | null>("Systems nominal, Zak. Ready when you are.");
 
+  // Autonomous Roam & Free-Will Mode Toggle
+  const [isAutonomousWander, setIsAutonomousWander] = useState(false);
+  const wanderTargetRef = useRef<{ x: number; z: number } | null>(null);
+
+  // 4D Spatiotemporal Journal Records
+  const [memories, setMemories] = useState<MemoryEpisode[]>([]);
+
+  // Dwell Tracking Engine (Tracks how long you linger in a spot)
+  const lastDwellPos = useRef<{ x: number; z: number }>({ x: 0, z: 0 });
+  const dwellStartTime = useRef<number>(Date.now());
+
+  // Load existing episodes on boot
+  useEffect(() => {
+    getAllEpisodes().then(setMemories);
+  }, []);
+
   // Vision State (llava:latest)
   const [isVisionScanning, setIsVisionScanning] = useState(false);
   const [visionDescription, setVisionDescription] = useState<string | null>(null);
@@ -52,7 +76,7 @@ export const App: React.FC = () => {
     {
       id: '1',
       sender: 'companion',
-      text: 'Systems nominal, Zak. MyOS Cortex cognition & optical sensory array online.',
+      text: 'Systems nominal, Zak. 4D Spatiotemporal memory lattice & cardboard physics active.',
       timestamp: Date.now()
     }
   ]);
@@ -78,7 +102,7 @@ export const App: React.FC = () => {
     }, durationMs);
   }, []);
 
-  // 60 FPS Game Loop
+  // Main 60 FPS Game Loop
   useEffect(() => {
     let animId: number;
     let lastTime = performance.now();
@@ -87,7 +111,7 @@ export const App: React.FC = () => {
       const delta = Math.min((time - lastTime) / 1000, 0.1);
       lastTime = time;
 
-      // 1. INPUT RESOLUTION (Standard Gamepad & WASD conventions)
+      // 1. INPUT RESOLUTION
       let inputForward = 0;
       let inputStrafe = 0;
 
@@ -135,18 +159,53 @@ export const App: React.FC = () => {
 
           setPlayerRot([0, currentP.rotY, 0]);
           setPlayerPos([currentP.x, currentP.y, currentP.z]);
+
+          // Moving resets dwell timer
+          lastDwellPos.current = { x: currentP.x, z: currentP.z };
+          dwellStartTime.current = Date.now();
         } else {
           setPlayerAction(prev => (prev === 'Idle_Talking_Loop' || prev === 'Sitting_Idle_Loop') ? prev : 'Idle_Loop');
+
+          // Dwell check: If we lingered > 20s without a log, trigger an idle contemplation
+          const dwellSeconds = (Date.now() - dwellStartTime.current) / 1000;
+          if (dwellSeconds > 22 && dwellSeconds < 23) {
+            const coordStr = format4DCoordinate(currentP.x, currentP.z, dwellSeconds);
+            const observation = `At ${coordStr}, Zak and I rested together on the ridge. The breeze gently swayed the pines.`;
+            saveEpisode({
+              coords: [currentP.x, currentP.y, currentP.z],
+              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              rawTime: Date.now(),
+              dwellSeconds,
+              observation,
+              source: 'spontaneous_thought'
+            }).then(ep => setMemories(prev => [ep, ...prev]));
+          }
         }
       }
 
-      // 3. COMPANION LOCOMOTION & FOLLOWER ENGINE
-      const dx = currentP.x - currentC.x;
-      const dz = currentP.z - currentC.z;
-      const dist = Math.sqrt(dx * dx + dz * dz);
-      const followRadius = 3.2;
+      // 3. COMPANION ENGINE (TETHERED vs. AUTONOMOUS FREE-WILL ROAM)
+      let targetX = currentP.x;
+      let targetZ = currentP.z;
 
-      // Face player
+      if (isAutonomousWander) {
+        // Pick random landmark or waypoint in a 40m radius
+        if (!wanderTargetRef.current || Math.random() < 0.005) {
+          const wanderAngle = Math.random() * Math.PI * 2;
+          const wanderDist = 10 + Math.random() * 25;
+          wanderTargetRef.current = {
+            x: currentP.x + Math.sin(wanderAngle) * wanderDist,
+            z: currentP.z + Math.cos(wanderAngle) * wanderDist
+          };
+        }
+        targetX = wanderTargetRef.current.x;
+        targetZ = wanderTargetRef.current.z;
+      }
+
+      const dx = targetX - currentC.x;
+      const dz = targetZ - currentC.z;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      const followRadius = isAutonomousWander ? 1.5 : 3.2;
+
       currentC.rotY = Math.atan2(dx, dz);
       setCompanionRot([0, currentC.rotY, 0]);
 
@@ -159,14 +218,21 @@ export const App: React.FC = () => {
         currentC.y = getAstraElevation(currentC.x, currentC.z);
         setCompanionPos([currentC.x, currentC.y, currentC.z]);
       } else {
-        if (playerAction === 'Dance_Loop') {
-          setCompanionAction('Dance_Loop');
-        } else if (playerAction === 'Sitting_Idle_Loop') {
-          setCompanionAction('Sitting_Idle_Loop');
-        } else if (['Punch_Cross', 'Punch_Jab', 'Melee_Weapon_Attack'].includes(playerAction)) {
-          setCompanionAction('Punch_Jab');
+        if (isAutonomousWander) {
+          // In autonomous wander, companion randomly interacts, inspects, or dances!
+          const idlePick: AnimationName[] = ['Interact', 'Dance_Loop', 'PickUp_Table', 'Idle_Loop'];
+          const chosen = idlePick[Math.floor(Math.random() * idlePick.length)];
+          setCompanionAction(chosen);
         } else {
-          setCompanionAction('Idle_Loop');
+          if (playerAction === 'Dance_Loop') {
+            setCompanionAction('Dance_Loop');
+          } else if (playerAction === 'Sitting_Idle_Loop') {
+            setCompanionAction('Sitting_Idle_Loop');
+          } else if (['Punch_Cross', 'Punch_Jab', 'Melee_Weapon_Attack'].includes(playerAction)) {
+            setCompanionAction('Punch_Jab');
+          } else {
+            setCompanionAction('Idle_Loop');
+          }
         }
         currentC.y = getAstraElevation(currentC.x, currentC.z);
         setCompanionPos([currentC.x, currentC.y, currentC.z]);
@@ -197,9 +263,30 @@ export const App: React.FC = () => {
 
     animId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(animId);
-  }, [gamepad, cameraYaw, playerAction, triggerOneShotPlayerAction]);
+  }, [gamepad, cameraYaw, playerAction, isAutonomousWander, triggerOneShotPlayerAction]);
 
-  // Chat with Local Ollama: myos-cortex:latest (The Sovereign Cognitive Engine)
+  // Prop Strike Event -> Logs to 4D Journal!
+  const handlePropStruck = (prop: InteractiveProp) => {
+    const dwellSeconds = (Date.now() - dwellStartTime.current) / 1000;
+    const coordStr = format4DCoordinate(prop.pos[0], prop.pos[2], dwellSeconds);
+
+    const actionDesc = prop.isKnockedDown
+      ? `At ${coordStr}, Zak struck down ${prop.name}! The cardboard timber toppled onto the Astra grid.`
+      : `At ${coordStr}, Zak struck ${prop.name}, causing the cardboard cutout to wobble vigorously!`;
+
+    setCompanionSpeech(actionDesc);
+
+    saveEpisode({
+      coords: prop.pos,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      rawTime: Date.now(),
+      dwellSeconds,
+      observation: actionDesc,
+      source: 'prop_interaction'
+    }).then(ep => setMemories(prev => [ep, ...prev]));
+  };
+
+  // Chat with Local Ollama: myos-cortex:latest (Wired to Semantic Memory Recall)
   const handleSendMessage = async (text: string) => {
     const userMsg: ChatMessage = {
       id: Date.now().toString(),
@@ -209,13 +296,19 @@ export const App: React.FC = () => {
     };
     setMessages(prev => [...prev, userMsg]);
 
+    // Query 4D memories via mxbai-embed-large
+    const relevantMemories = await queryMemories(text, 2);
+    const memoryContext = relevantMemories.length > 0
+      ? `Relevant past memories from your 4D journal:\n${relevantMemories.map(m => `- ${m.observation}`).join('\n')}\n`
+      : '';
+
     try {
       const response = await fetch('http://localhost:11434/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: 'myos-cortex:latest',
-          prompt: `Zak says: "${text}". You are MyOS Cortex, embodied as the radiant blue companion in the 3D Astra sandbox with Zak. Respond authentically in 1-2 concise sentences. At the very end of your response, specify an action in brackets, e.g. [Dance_Loop], [Punch_Jab], [Melee_Weapon_Attack], [Spell_Simple_Shoot], or [Sitting_Idle_Loop].`,
+          prompt: `${memoryContext}Zak says: "${text}". You are MyOS Cortex, embodied as the radiant blue companion in the 3D Astra sandbox with Zak. Respond authentically in 1-2 concise sentences. At the very end of your response, specify an action in brackets, e.g. [Dance_Loop], [Punch_Jab], [Melee_Weapon_Attack], [Spell_Simple_Shoot], or [Sitting_Idle_Loop].`,
           stream: false
         })
       });
@@ -224,14 +317,12 @@ export const App: React.FC = () => {
         const data = await response.json();
         const fullResponse = data.response.trim();
 
-        // Extract action from brackets if model emitted one
         let actionTriggered: AnimationName | undefined = undefined;
         const match = fullResponse.match(/\[([A-Za-z0-9_]+)\]/);
         if (match && match[1]) {
           actionTriggered = match[1] as AnimationName;
         }
 
-        // Clean speech text
         const cleanSpeech = fullResponse.replace(/\[([A-Za-z0-9_]+)\]/g, '').trim();
 
         if (actionTriggered) setCompanionAction(actionTriggered);
@@ -248,7 +339,6 @@ export const App: React.FC = () => {
         throw new Error('myos-cortex offline');
       }
     } catch {
-      // Local fallback
       const fallback = "Perimeter clear, Zak. Keeping visual lock on your coordinates.";
       setCompanionSpeech(fallback);
       setMessages(prev => [...prev, {
@@ -260,7 +350,7 @@ export const App: React.FC = () => {
     }
   };
 
-  // Optical Perception Loop with Local llava:latest
+  // Optical Perception Loop with Local llava:latest -> Automatically commits to 4D Journal
   const handleScanWithLlava = async (base64Img: string) => {
     setIsVisionScanning(true);
     try {
@@ -280,6 +370,19 @@ export const App: React.FC = () => {
         const description = data.response.trim();
         setVisionDescription(description);
         setCompanionSpeech(description);
+
+        const dwellSeconds = (Date.now() - dwellStartTime.current) / 1000;
+        const coordStr = format4DCoordinate(currentC.x, currentC.z, dwellSeconds);
+        const journalEntry = `At ${coordStr}, through my eyes: ${description}`;
+
+        saveEpisode({
+          coords: [currentC.x, currentC.y, currentC.z],
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          rawTime: Date.now(),
+          dwellSeconds,
+          observation: journalEntry,
+          source: 'visual_scan'
+        }).then(ep => setMemories(prev => [ep, ...prev]));
 
         setMessages(prev => [...prev, {
           id: Date.now().toString(),
@@ -324,7 +427,13 @@ export const App: React.FC = () => {
         <AstraCyclotrope anchorPos={playerPos} />
         <CameraFollower targetPos={playerPos} yaw={cameraYaw} />
         <AstraTerrain playerPos={playerPos} />
-        <BillboardProps />
+
+        {/* Cardboard Props Field with Topple & Wobble Physics */}
+        <CardboardPropField
+          playerPos={playerPos}
+          playerAction={playerAction}
+          onPropStruck={handlePropStruck}
+        />
 
         {/* Player Flesh Golem (Warm Amber) */}
         <FleshGolem
@@ -365,9 +474,12 @@ export const App: React.FC = () => {
         telemetry={telemetry}
         gamepad={gamepad}
         messages={messages}
+        memories={memories}
         onSendMessage={handleSendMessage}
         onTriggerCompanionAction={(act) => setCompanionAction(act)}
         onTriggerPlayerAction={(act) => triggerOneShotPlayerAction(act)}
+        isAutonomousWandering={isAutonomousWander}
+        onToggleAutonomousWander={() => setIsAutonomousWander(prev => !prev)}
       />
     </div>
   );

@@ -1,27 +1,34 @@
 import React, { useState } from 'react';
 import { ALL_ANIMATIONS, AnimationName, CompanionTelemetry, ChatMessage } from '../types';
 import { GamepadState } from '../hooks/useGamepad';
-import { Play, Sparkles, Send, Gamepad2, Brain, Compass, MessageSquare } from 'lucide-react';
+import { MemoryEpisode } from '../services/SpatiotemporalMemory';
+import { Play, Sparkles, Send, Gamepad2, Brain, Compass, MessageSquare, BookOpen, Clock, MapPin } from 'lucide-react';
 
 interface CompanionHUDProps {
   telemetry: CompanionTelemetry;
   gamepad: GamepadState;
   messages: ChatMessage[];
+  memories: MemoryEpisode[];
   onSendMessage: (text: string) => void;
   onTriggerCompanionAction: (action: AnimationName) => void;
   onTriggerPlayerAction: (action: AnimationName) => void;
+  isAutonomousWandering: boolean;
+  onToggleAutonomousWander: () => void;
 }
 
 export const CompanionHUD: React.FC<CompanionHUDProps> = ({
   telemetry,
   gamepad,
   messages,
+  memories,
   onSendMessage,
   onTriggerCompanionAction,
-  onTriggerPlayerAction
+  onTriggerPlayerAction,
+  isAutonomousWandering,
+  onToggleAutonomousWander
 }) => {
   const [inputText, setInputText] = useState('');
-  const [activeTab, setActiveTab] = useState<'chat' | 'actions' | 'telemetry'>('chat');
+  const [activeTab, setActiveTab] = useState<'chat' | 'journal' | 'actions' | 'telemetry'>('chat');
 
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,10 +42,10 @@ export const CompanionHUD: React.FC<CompanionHUDProps> = ({
       position: 'absolute',
       top: 0,
       right: 0,
-      width: '380px',
+      width: '400px',
       height: '100%',
-      background: 'rgba(11, 15, 29, 0.88)',
-      backdropFilter: 'blur(12px)',
+      background: 'rgba(11, 15, 29, 0.9)',
+      backdropFilter: 'blur(14px)',
       borderLeft: '1px solid rgba(56, 189, 248, 0.25)',
       display: 'flex',
       flexDirection: 'column',
@@ -48,26 +55,59 @@ export const CompanionHUD: React.FC<CompanionHUDProps> = ({
     }}>
       {/* Header */}
       <div style={{
-        padding: '16px 20px',
+        padding: '14px 18px',
         borderBottom: '1px solid rgba(56, 189, 248, 0.2)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between'
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Brain style={{ color: '#38bdf8', width: 22, height: 22 }} />
-          <span style={{ fontWeight: 700, fontSize: '1.1rem', letterSpacing: '0.05em' }}>CORTEX COMPANION</span>
+          <Brain style={{ color: '#38bdf8', width: 20, height: 20 }} />
+          <span style={{ fontWeight: 700, fontSize: '1.05rem', letterSpacing: '0.05em' }}>CORTEX COMPANION</span>
         </div>
         <div style={{
-          fontSize: '0.75rem',
+          fontSize: '0.72rem',
           display: 'flex',
           alignItems: 'center',
           gap: '6px',
           color: gamepad.connected ? '#4ade80' : '#94a3b8'
         }}>
-          <Gamepad2 style={{ width: 16, height: 16 }} />
+          <Gamepad2 style={{ width: 15, height: 15 }} />
           <span>{gamepad.connected ? 'GAMEPAD ON' : 'KEYBOARD'}</span>
         </div>
+      </div>
+
+      {/* Autonomous Free-Will Switch Bar */}
+      <div style={{
+        padding: '8px 16px',
+        background: isAutonomousWandering ? 'rgba(2, 132, 199, 0.25)' : 'rgba(0, 0, 0, 0.3)',
+        borderBottom: '1px solid rgba(56, 189, 248, 0.15)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        fontSize: '0.75rem'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <Compass size={14} style={{ color: isAutonomousWandering ? '#38bdf8' : '#94a3b8' }} />
+          <span style={{ fontWeight: 600 }}>Autonomous Roam:</span>
+          <span style={{ color: isAutonomousWandering ? '#38bdf8' : '#64748b' }}>
+            {isAutonomousWandering ? 'FREE WILL (EXPLORING)' : 'TETHERED TO PLAYER'}
+          </span>
+        </div>
+        <button
+          onClick={onToggleAutonomousWander}
+          style={{
+            padding: '3px 9px',
+            background: isAutonomousWandering ? '#0284c7' : 'rgba(255, 255, 255, 0.1)',
+            border: '1px solid rgba(56, 189, 248, 0.3)',
+            borderRadius: '4px',
+            color: '#fff',
+            fontSize: '0.7rem',
+            cursor: 'pointer',
+            fontWeight: 600
+          }}>
+          {isAutonomousWandering ? 'TETHER' : 'UNLEASH'}
+        </button>
       </div>
 
       {/* Tabs */}
@@ -86,14 +126,33 @@ export const CompanionHUD: React.FC<CompanionHUDProps> = ({
             borderBottom: activeTab === 'chat' ? '2px solid #38bdf8' : '2px solid transparent',
             color: activeTab === 'chat' ? '#38bdf8' : '#94a3b8',
             cursor: 'pointer',
-            fontSize: '0.85rem',
+            fontSize: '0.8rem',
             fontWeight: 600,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            gap: '6px'
+            gap: '5px'
           }}>
-          <MessageSquare size={15} /> Chat
+          <MessageSquare size={14} /> Chat
+        </button>
+        <button
+          onClick={() => setActiveTab('journal')}
+          style={{
+            flex: 1,
+            padding: '10px 0',
+            background: activeTab === 'journal' ? 'rgba(56, 189, 248, 0.15)' : 'transparent',
+            border: 'none',
+            borderBottom: activeTab === 'journal' ? '2px solid #38bdf8' : '2px solid transparent',
+            color: activeTab === 'journal' ? '#38bdf8' : '#94a3b8',
+            cursor: 'pointer',
+            fontSize: '0.8rem',
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '5px'
+          }}>
+          <BookOpen size={14} /> 4D Journal ({memories.length})
         </button>
         <button
           onClick={() => setActiveTab('actions')}
@@ -105,14 +164,14 @@ export const CompanionHUD: React.FC<CompanionHUDProps> = ({
             borderBottom: activeTab === 'actions' ? '2px solid #38bdf8' : '2px solid transparent',
             color: activeTab === 'actions' ? '#38bdf8' : '#94a3b8',
             cursor: 'pointer',
-            fontSize: '0.85rem',
+            fontSize: '0.8rem',
             fontWeight: 600,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            gap: '6px'
+            gap: '5px'
           }}>
-          <Sparkles size={15} /> 45 Clips
+          <Sparkles size={14} /> 45 Clips
         </button>
         <button
           onClick={() => setActiveTab('telemetry')}
@@ -124,14 +183,14 @@ export const CompanionHUD: React.FC<CompanionHUDProps> = ({
             borderBottom: activeTab === 'telemetry' ? '2px solid #38bdf8' : '2px solid transparent',
             color: activeTab === 'telemetry' ? '#38bdf8' : '#94a3b8',
             cursor: 'pointer',
-            fontSize: '0.85rem',
+            fontSize: '0.8rem',
             fontWeight: 600,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            gap: '6px'
+            gap: '5px'
           }}>
-          <Compass size={15} /> Telemetry
+          <Compass size={14} /> Telemetry
         </button>
       </div>
 
@@ -140,14 +199,14 @@ export const CompanionHUD: React.FC<CompanionHUDProps> = ({
         {activeTab === 'chat' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             <div style={{
-              fontSize: '0.75rem',
+              fontSize: '0.72rem',
               color: '#94a3b8',
               background: 'rgba(56, 189, 248, 0.08)',
               padding: '8px 12px',
               borderRadius: '6px',
               border: '1px solid rgba(56, 189, 248, 0.15)'
             }}>
-              💡 Talk to your AI Buddy or click quick commands below. Connected to local Ollama agent on localhost:11434.
+              💡 Wired to MyOS Cortex on localhost:11434. Memories and observations are indexed by mxbai-embed-large.
             </div>
 
             {/* Message Feed */}
@@ -157,16 +216,16 @@ export const CompanionHUD: React.FC<CompanionHUDProps> = ({
                   key={m.id}
                   style={{
                     alignSelf: m.sender === 'player' ? 'flex-end' : 'flex-start',
-                    maxWidth: '85%',
+                    maxWidth: '88%',
                     padding: '10px 14px',
                     borderRadius: '10px',
                     background: m.sender === 'player' ? '#2563eb' : '#1e293b',
                     color: '#f8fafc',
-                    fontSize: '0.85rem',
+                    fontSize: '0.83rem',
                     border: m.sender === 'companion' ? '1px solid rgba(56, 189, 248, 0.3)' : 'none'
                   }}>
                   <div style={{ fontSize: '0.65rem', opacity: 0.7, marginBottom: '2px' }}>
-                    {m.sender === 'player' ? 'YOU (P1)' : 'COMPANION'}
+                    {m.sender === 'player' ? 'YOU (ZAK)' : 'MYOS CORTEX'}
                   </div>
                   <div>{m.text}</div>
                   {m.actionTriggered && (
@@ -187,9 +246,68 @@ export const CompanionHUD: React.FC<CompanionHUDProps> = ({
           </div>
         )}
 
+        {/* 4D Spatiotemporal Journal */}
+        {activeTab === 'journal' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+              Chronological 4D travel log. Each entry records (X, Z, Time, Dwell Duration) and mxbai-embed-large vector:
+            </div>
+
+            {memories.length === 0 ? (
+              <div style={{ padding: '20px', textAlign: 'center', color: '#64748b', fontSize: '0.8rem' }}>
+                No journal entries yet. Linger near a tree, strike down a prop, or hit "SCAN VISION" to record a memory!
+              </div>
+            ) : (
+              memories.map(entry => (
+                <div
+                  key={entry.id}
+                  style={{
+                    background: 'rgba(15, 23, 42, 0.85)',
+                    border: '1px solid rgba(56, 189, 248, 0.25)',
+                    borderRadius: '8px',
+                    padding: '10px 12px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '4px',
+                    fontSize: '0.78rem'
+                  }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: '#38bdf8' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <MapPin size={12} />
+                      <span style={{ fontWeight: 600 }}>({entry.coords[0].toFixed(1)}, {entry.coords[2].toFixed(1)})</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#94a3b8', fontSize: '0.7rem' }}>
+                      <Clock size={11} />
+                      <span>{entry.timestamp}</span>
+                    </div>
+                  </div>
+
+                  <div style={{ color: '#e2e8f0', marginTop: '2px' }}>
+                    {entry.observation}
+                  </div>
+
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginTop: '4px',
+                    fontSize: '0.68rem',
+                    color: '#64748b'
+                  }}>
+                    <span>Dwell: {Math.round(entry.dwellSeconds)}s</span>
+                    <span style={{ color: entry.embedding ? '#4ade80' : '#f59e0b' }}>
+                      {entry.embedding ? '● 1024-dim Vector Indexed' : '○ Text Only'}
+                    </span>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+
         {activeTab === 'actions' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginBottom: '6px' }}>
+            <div style={{ fontSize: '0.78rem', color: '#94a3b8', marginBottom: '6px' }}>
               Direct Animation Overrides (Click to trigger on Companion or Player):
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
@@ -231,8 +349,8 @@ export const CompanionHUD: React.FC<CompanionHUDProps> = ({
               <div>🕹️ <b>Left Stick / WASD</b>: 360° Walk / Jog / Sprint</div>
               <div>🕹️ <b>Right Stick</b>: Orbit Camera</div>
               <div>🟢 <b>A / Space</b>: Jump</div>
-              <div>🔴 <b>B / Shift</b>: Combat Roll</div>
-              <div>🟦 <b>X / Click</b>: Punch Combo</div>
+              <div>🔴 <b>B / Shift</b>: Combat Roll (Topples props!)</div>
+              <div>🟦 <b>X / Click</b>: Punch Combo (Strikes props!)</div>
               <div>🔺 <b>Y / E</b>: Heavy Weapon Attack</div>
               <div>⚡ <b>RB / Q</b>: Spell Cast Shoot</div>
               <div>🕺 <b>D-Pad Up / 1</b>: Dance Emote</div>
