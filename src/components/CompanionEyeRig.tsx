@@ -12,9 +12,9 @@ export const CompanionEyeRig: React.FC<CompanionEyeRigProps> = ({
   companionPos,
   companionRot,
 }) => {
-  // Embodied 1st-person camera with 80° natural human field-of-view
   const eyeCamera = useMemo(() => {
-    const cam = new THREE.PerspectiveCamera(80, 512 / 384, 0.05, 500);
+    // 85° field of view, near plane starts at 0.05m to completely exclude head surface
+    const cam = new THREE.PerspectiveCamera(85, 512 / 384, 0.05, 600);
     return cam;
   }, []);
 
@@ -33,23 +33,24 @@ export const CompanionEyeRig: React.FC<CompanionEyeRigProps> = ({
   }, []);
 
   useFrame(({ scene }) => {
-    const lookAngle = companionRot[1];
+    // True line of sight angle: in our system, heading angle is companionRot[1]
+    const heading = companionRot[1];
 
-    // The mannequin eye socket height is at ~1.78m.
-    // We nudge the camera 0.35m forward along its facing heading so the lens sits
-    // directly in front of the skull/face surface, completely eliminating any back-of-head clipping!
-    const forwardOffset = 0.35;
-    const eyeX = companionPos[0] + Math.sin(lookAngle) * forwardOffset;
-    const eyeY = companionPos[1] + 1.78;
-    const eyeZ = companionPos[2] + Math.cos(lookAngle) * forwardOffset;
+    // Companion scale is 1.8x, so head height is at ~1.95m.
+    // Move 0.65m forward along the true facing vector so the ocular lens is
+    // strictly in FRONT of the blue companion's head and body.
+    const forwardDistance = 0.65;
+    const eyeX = companionPos[0] + Math.sin(heading) * forwardDistance;
+    const eyeY = companionPos[1] + 1.95;
+    const eyeZ = companionPos[2] + Math.cos(heading) * forwardDistance;
 
     eyeCamera.position.set(eyeX, eyeY, eyeZ);
 
-    // Look target directly forward along the companion's line of sight
-    const lookDist = 20.0;
-    const targetX = eyeX + Math.sin(lookAngle) * lookDist;
-    const targetZ = eyeZ + Math.cos(lookAngle) * lookDist;
-    const targetY = eyeY - 0.1; // slight natural level gaze
+    // Look straight forward into the horizon
+    const lookDist = 30.0;
+    const targetX = eyeX + Math.sin(heading) * lookDist;
+    const targetZ = eyeZ + Math.cos(heading) * lookDist;
+    const targetY = eyeY - 0.1;
 
     eyeCamera.lookAt(targetX, targetY, targetZ);
 
