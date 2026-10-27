@@ -12,7 +12,6 @@ interface FleshGolemProps {
   currentAnimation: AnimationName;
   skinColor?: string;
   isCompanion?: boolean;
-  speechText?: string | null;
 }
 
 export const FleshGolem: React.FC<FleshGolemProps> = ({
@@ -22,17 +21,18 @@ export const FleshGolem: React.FC<FleshGolemProps> = ({
   currentAnimation,
   skinColor = '#d97706',
   isCompanion = false,
-  speechText = null,
 }) => {
   const groupRef = useRef<THREE.Group>(null);
+  const visualPivotRef = useRef<THREE.Group>(null);
   const { scene, animations } = useGLTF(modelPath);
 
   const targetQuat = useMemo(() => new THREE.Quaternion(), []);
 
-  // Clone armature with SkeletonUtils
+  // Clone armature with SkeletonUtils to retain bone weights
   const clonedScene = useMemo(() => {
     const clone = SkeletonUtils.clone(scene) as THREE.Group;
 
+    // Center the model's root bounds so pivoting happens at true center
     clone.traverse((child) => {
       if ((child as THREE.Mesh).isMesh || (child as THREE.SkinnedMesh).isSkinnedMesh) {
         const mesh = child as THREE.Mesh;
@@ -97,12 +97,14 @@ export const FleshGolem: React.FC<FleshGolemProps> = ({
 
   }, [currentAnimation, actions]);
 
-  // Smooth position & rotation lerping
+  // Pivot orientation cleanly at exact center
   useFrame((_, delta) => {
     if (groupRef.current) {
-      groupRef.current.position.lerp(new THREE.Vector3(...position), Math.min(delta * 22, 1));
-      targetQuat.setFromEuler(new THREE.Euler(rotation[0], rotation[1], rotation[2], 'YXZ'));
-      groupRef.current.quaternion.slerp(targetQuat, Math.min(delta * 14, 1));
+      groupRef.current.position.set(position[0], position[1], position[2]);
+    }
+    if (visualPivotRef.current) {
+      targetQuat.setFromEuler(new THREE.Euler(0, rotation[1], 0, 'YXZ'));
+      visualPivotRef.current.quaternion.slerp(targetQuat, Math.min(delta * 18, 1));
     }
   });
 
@@ -114,7 +116,10 @@ export const FleshGolem: React.FC<FleshGolemProps> = ({
       scale={1.8} 
       dispose={null}
     >
-      <primitive object={clonedScene} />
+      {/* Visual pivot anchored at (0, 0, 0) */}
+      <group ref={visualPivotRef}>
+        <primitive object={clonedScene} />
+      </group>
 
       {/* Floating Name Beacon */}
       {isCompanion && (
@@ -124,16 +129,6 @@ export const FleshGolem: React.FC<FleshGolemProps> = ({
             <meshBasicMaterial color="#38bdf8" />
           </mesh>
           <pointLight color="#38bdf8" intensity={0.8} distance={4} />
-        </group>
-      )}
-
-      {/* In-world Speech Bubble Pill */}
-      {speechText && isCompanion && (
-        <group position={[0, 2.2, 0]}>
-          <mesh>
-            <planeGeometry args={[Math.min(speechText.length * 0.1 + 0.6, 4.0), 0.55]} />
-            <meshBasicMaterial color="#0f172a" transparent opacity={0.88} side={THREE.DoubleSide} />
-          </mesh>
         </group>
       )}
     </group>

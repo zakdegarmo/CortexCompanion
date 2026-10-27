@@ -19,24 +19,40 @@ import {
   MemoryEpisode
 } from './services/SpatiotemporalMemory';
 
-// Camera follower rig tracking player avatar
-const CameraFollower: React.FC<{ targetPos: [number, number, number]; yaw: number }> = ({ targetPos, yaw }) => {
+// Camera follower rig tracking player avatar with controllable Orbit (Q/E) and Pitch (R/F)
+const CameraFollower: React.FC<{
+  targetPos: [number, number, number];
+  yaw: number;
+  pitch: number;
+  jumpOffset: number;
+}> = ({ targetPos, yaw, pitch, jumpOffset }) => {
   useFrame(({ camera }, delta) => {
-    const distance = 9.0;
-    const height = 4.5;
+    const distance = 9.5;
+    // Pitch adjusts the camera height & radius
+    const baseHeight = 4.2;
+    const pitchedHeight = baseHeight + Math.sin(pitch) * 5.0;
+    const pitchedDist = distance * Math.cos(pitch);
 
-    const targetX = targetPos[0] - Math.sin(yaw) * distance;
-    const targetZ = targetPos[2] - Math.cos(yaw) * distance;
-    const targetY = targetPos[1] + height;
+    const targetX = targetPos[0] - Math.sin(yaw) * pitchedDist;
+    const targetZ = targetPos[2] - Math.cos(yaw) * pitchedDist;
+    const targetY = targetPos[1] + jumpOffset + pitchedHeight;
 
-    camera.position.lerp(new THREE.Vector3(targetX, targetY, targetZ), delta * 8);
-    camera.lookAt(targetPos[0], targetPos[1] + 1.4, targetPos[2]);
+    camera.position.lerp(new THREE.Vector3(targetX, targetY, targetZ), delta * 10);
+    camera.lookAt(targetPos[0], targetPos[1] + jumpOffset + 1.4, targetPos[2]);
   });
   return null;
 };
 
 // Mutable coordinates for clean 60fps locomotion
-const currentP = { x: 0, y: getAstraElevation(0, 0), z: 0, rotY: 0 };
+const currentP = {
+  x: 0,
+  y: getAstraElevation(0, 0),
+  z: 0,
+  rotY: 0,
+  jumpY: 0,
+  jumpVel: 0,
+  isJumping: false
+};
 const currentC = { x: 3.5, y: getAstraElevation(3.5, 3.5), z: 3.5, rotY: 0 };
 
 export const App: React.FC = () => {
@@ -45,7 +61,10 @@ export const App: React.FC = () => {
   const [playerPos, setPlayerPos] = useState<[number, number, number]>([currentP.x, currentP.y, currentP.z]);
   const [playerRot, setPlayerRot] = useState<[number, number, number]>([0, 0, 0]);
   const [playerAction, setPlayerAction] = useState<AnimationName>('Idle_Loop');
+  
+  // Camera Orbit (Yaw) and Tilt (Pitch)
   const [cameraYaw, setCameraYaw] = useState<number>(0);
+  const [cameraPitch, setCameraPitch] = useState<number>(0.15); // gentle default down-angle
 
   const [companionPos, setCompanionPos] = useState<[number, number, number]>([currentC.x, currentC.y, currentC.z]);
   const [companionRot, setCompanionRot] = useState<[number, number, number]>([0, 0, 0]);
@@ -65,12 +84,10 @@ export const App: React.FC = () => {
   const hasLoggedCurrentDwell = useRef<boolean>(false);
   const lastMemoryLogTime = useRef<number>(0);
 
-  // Load existing episodes on boot (capped to latest 50 to prevent memory bloating)
   useEffect(() => {
     getAllEpisodes().then(eps => setMemories(eps.slice(0, 50)));
   }, []);
 
-  // Vision State (llava:latest)
   const [isVisionScanning, setIsVisionScanning] = useState(false);
   const [visionDescription, setVisionDescription] = useState<string | null>(null);
 
@@ -78,7 +95,7 @@ export const App: React.FC = () => {
     {
       id: '1',
       sender: 'companion',
-      text: 'Systems nominal, Zak. Memory rate limiter & deduplication engine active.',
+      text: 'Systems nominal, Zak. MyOS camera orbit (Q/E) & pitch (R/F) engaged.',
       timestamp: Date.now()
     }
   ]);
@@ -104,7 +121,6 @@ export const App: React.FC = () => {
     }, durationMs);
   }, []);
 
-  // Helper to safely commit a memory with rate limiting & deduplication
   const recordUniqueMemory = useCallback(async (
     coords: [number, number, number],
     observation: string,
@@ -112,7 +128,6 @@ export const App: React.FC = () => {
     dwellSec: number
   ) => {
     const now = Date.now();
-    // Enforce minimum 8 seconds cooldown between ANY journal writes
     if (now - lastMemoryLogTime.current < 8000) return;
     lastMemoryLogTime.current = now;
 
@@ -125,7 +140,7 @@ export const App: React.FC = () => {
       source
     });
 
-    setMemories(prev => [newEp, ...prev.slice(0, 49)]); // Maintain bounded ring buffer of 50
+    setMemories(prev => [newEp, ...prev.slice(0, 49)]);
   }, []);
 
   // Main 60 FPS Game Loop
@@ -137,34 +152,69 @@ export const App: React.FC = () => {
       const delta = Math.min((time - lastTime) / 1000, 0.1);
       lastTime = time;
 
-      // 1. INPUT RESOLUTION
+      // 1. CAMERA CONTROLS (MyOS Standard: Q/E for Orbit, R/F for Pitch, or Right Stick)
+      if (gamepad.connected) {
+        if (Math.abs(gamepad.rightStick.x) > 0.05) {
+          setCameraYaw(prev => prev + gamepad.rightStick.x * delta * 2.5);
+        }
+        if (Math.abs(gamepad.rightStick.y) > 0.05) {
+          setCameraPitch(prev => Math.max(-0.35, Math.min(0.65, prev - gamepad.rightStick.y * delta * 1.8)));
+        }
+      } else {
+        // Q / E: Camera Orbit / Rotation
+        if (keys.current['q']) setCameraYaw(prev => prev - delta * 2.2);
+        if (keys.current['e']) setCameraYaw(prev => prev + delta * 2.2);
+        // R / F: Camera Tilt / Pitch
+        if (keys.current['r']) setCameraPitch(prev => Math.min(0.65, prev + delta * 1.5));
+        if (keys.current['f']) setCameraPitch(prev => Math.max(-0.35, prev - delta * 1.5));
+        // Arrow keys fallback
+        if (keys.current['arrowleft']) setCameraYaw(prev => prev - delta * 2.2);
+        if (keys.current['arrowright']) setCameraYaw(prev => prev + delta * 2.2);
+        if (keys.current['arrowup']) setCameraPitch(prev => Math.min(0.65, prev + delta * 1.5));
+        if (keys.current['arrowdown']) setCameraPitch(prev => Math.max(-0.35, prev - delta * 1.5));
+      }
+
+      // 2. INPUT RESOLUTION (WASD / Left Stick)
       let inputForward = 0;
       let inputStrafe = 0;
 
       if (gamepad.connected) {
         inputForward = -gamepad.leftStick.y;
         inputStrafe = gamepad.leftStick.x;
-
-        if (Math.abs(gamepad.rightStick.x) > 0.05) {
-          setCameraYaw(prev => prev + gamepad.rightStick.x * delta * 2.5);
-        }
       } else {
         if (keys.current['w']) inputForward += 1;
         if (keys.current['s']) inputForward -= 1;
         if (keys.current['d']) inputStrafe += 1;
         if (keys.current['a']) inputStrafe -= 1;
-        if (keys.current['arrowleft']) setCameraYaw(prev => prev - delta * 2.0);
-        if (keys.current['arrowright']) setCameraYaw(prev => prev + delta * 2.0);
       }
 
-      // 2. PLAYER DIRECTION & VELOCITY
+      // 3. JUMP PHYSICS (Space Bar / Gamepad A)
+      if ((keys.current[' '] || (gamepad.connected && gamepad.buttons.a)) && !currentP.isJumping) {
+        currentP.isJumping = true;
+        currentP.jumpVel = 9.0;
+        setPlayerAction('Jump_Start');
+      }
+
+      if (currentP.isJumping) {
+        currentP.jumpVel -= 24.0 * delta; // Gravity
+        currentP.jumpY += currentP.jumpVel * delta;
+        if (currentP.jumpY <= 0) {
+          currentP.jumpY = 0;
+          currentP.jumpVel = 0;
+          currentP.isJumping = false;
+          setPlayerAction('Jump_Land');
+          setTimeout(() => setPlayerAction('Idle_Loop'), 350);
+        }
+      }
+
+      // 4. PLAYER MOVEMENT & PIVOTING
       const mag = Math.sqrt(inputForward * inputForward + inputStrafe * inputStrafe);
       const isMoving = mag > 0.15;
 
       const isOneShotActive = actionTimeoutRef.current !== null && 
-        ['Jump_Start', 'Roll', 'Punch_Cross', 'Punch_Jab', 'Melee_Weapon_Attack', 'Spell_Simple_Shoot', 'Dance_Loop'].includes(playerAction);
+        ['Roll', 'Punch_Cross', 'Punch_Jab', 'Melee_Weapon_Attack', 'Spell_Simple_Shoot', 'Dance_Loop'].includes(playerAction);
 
-      if (!isOneShotActive) {
+      if (!isOneShotActive && !currentP.isJumping) {
         if (isMoving) {
           const camFwdX = Math.sin(cameraYaw);
           const camFwdZ = Math.cos(cameraYaw);
@@ -178,15 +228,15 @@ export const App: React.FC = () => {
           const currentAnim: AnimationName = speed > 7.0 ? 'Sprint_Loop' : (speed > 4.0 ? 'Jog_Fwd_Loop' : 'Walk_Loop');
           setPlayerAction(currentAnim);
 
+          // Stationary pivot: The rotation updates to face the move vector
           currentP.rotY = Math.atan2(moveDirX, moveDirZ);
           currentP.x += moveDirX * speed * delta;
           currentP.z += moveDirZ * speed * delta;
-          currentP.y = getAstraElevation(currentP.x, currentP.z);
+          currentP.y = getAstraElevation(currentP.x, currentP.z) + currentP.jumpY;
 
           setPlayerRot([0, currentP.rotY, 0]);
           setPlayerPos([currentP.x, currentP.y, currentP.z]);
 
-          // Moving resets dwell timer & unlocks one-time dwell logging
           const distFromLastDwell = Math.hypot(currentP.x - lastDwellPos.current.x, currentP.z - lastDwellPos.current.z);
           if (distFromLastDwell > 5.0) {
             lastDwellPos.current = { x: currentP.x, z: currentP.z };
@@ -194,9 +244,10 @@ export const App: React.FC = () => {
             hasLoggedCurrentDwell.current = false;
           }
         } else {
-          setPlayerAction(prev => (prev === 'Idle_Talking_Loop' || prev === 'Sitting_Idle_Loop') ? prev : 'Idle_Loop');
+          currentP.y = getAstraElevation(currentP.x, currentP.z) + currentP.jumpY;
+          setPlayerPos([currentP.x, currentP.y, currentP.z]);
+          setPlayerAction(prev => (prev === 'Idle_Talking_Loop' || prev === 'Sitting_Idle_Loop' || prev === 'Jump_Land') ? prev : 'Idle_Loop');
 
-          // STRICT SINGLE LOG PER REST: Only log ONCE per stationary session after 25s
           const dwellSeconds = (Date.now() - dwellStartTime.current) / 1000;
           if (dwellSeconds > 25 && !hasLoggedCurrentDwell.current) {
             hasLoggedCurrentDwell.current = true;
@@ -207,7 +258,7 @@ export const App: React.FC = () => {
         }
       }
 
-      // 3. COMPANION ENGINE
+      // 5. COMPANION FOLLOWER ENGINE
       let targetX = currentP.x;
       let targetZ = currentP.z;
 
@@ -260,9 +311,8 @@ export const App: React.FC = () => {
         setCompanionPos([currentC.x, currentC.y, currentC.z]);
       }
 
-      // Controller Action Buttons
+      // Controller Actions
       if (gamepad.connected) {
-        if (gamepad.buttons.a && !isOneShotActive) triggerOneShotPlayerAction('Jump_Start', 700);
         if (gamepad.buttons.b && !isOneShotActive) triggerOneShotPlayerAction('Roll', 800);
         if (gamepad.buttons.x && !isOneShotActive) triggerOneShotPlayerAction('Punch_Cross', 600);
         if (gamepad.buttons.y && !isOneShotActive) triggerOneShotPlayerAction('Melee_Weapon_Attack', 1000);
@@ -271,12 +321,10 @@ export const App: React.FC = () => {
         if (gamepad.buttons.dpadDown && !isOneShotActive) setPlayerAction('Sitting_Idle_Loop');
       }
 
-      // Keyboard Controls
-      if (keys.current[' '] && !isOneShotActive) triggerOneShotPlayerAction('Jump_Start', 700);
+      // Keyboard Controls (C: Roll, X: Punch, Z: Heavy Attack, 1: Dance, 2: Sit)
       if (keys.current['c'] && !isOneShotActive) triggerOneShotPlayerAction('Roll', 800);
-      if (keys.current['f'] && !isOneShotActive) triggerOneShotPlayerAction('Punch_Cross', 600);
-      if (keys.current['e'] && !isOneShotActive) triggerOneShotPlayerAction('Melee_Weapon_Attack', 1000);
-      if (keys.current['q'] && !isOneShotActive) triggerOneShotPlayerAction('Spell_Simple_Shoot', 900);
+      if (keys.current['x'] && !isOneShotActive) triggerOneShotPlayerAction('Punch_Cross', 600);
+      if (keys.current['z'] && !isOneShotActive) triggerOneShotPlayerAction('Melee_Weapon_Attack', 1000);
       if (keys.current['1']) setPlayerAction('Dance_Loop');
       if (keys.current['2']) setPlayerAction('Sitting_Idle_Loop');
 
@@ -285,9 +333,9 @@ export const App: React.FC = () => {
 
     animId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(animId);
-  }, [gamepad, cameraYaw, playerAction, isAutonomousWander, triggerOneShotPlayerAction, recordUniqueMemory]);
+  }, [gamepad, cameraYaw, cameraPitch, playerAction, isAutonomousWander, triggerOneShotPlayerAction, recordUniqueMemory]);
 
-  // Prop Strike Event -> Debounced & Deduplicated
+  // Prop Strike Event
   const handlePropStruck = (prop: InteractiveProp) => {
     const dwellSeconds = (Date.now() - dwellStartTime.current) / 1000;
     const coordStr = format4DCoordinate(prop.pos[0], prop.pos[2], dwellSeconds);
@@ -300,7 +348,7 @@ export const App: React.FC = () => {
     recordUniqueMemory(prop.pos, actionDesc, 'prop_interaction', dwellSeconds);
   };
 
-  // Chat with Local Ollama: myos-cortex:latest (Wired to Semantic Memory Recall)
+  // Chat with Local Ollama: myos-cortex:latest
   const handleSendMessage = async (text: string) => {
     const userMsg: ChatMessage = {
       id: Date.now().toString(),
@@ -363,7 +411,7 @@ export const App: React.FC = () => {
     }
   };
 
-  // Optical Perception Loop with Local llava:latest
+  // Optical Perception with LLaVA
   const handleScanWithLlava = async (base64Img: string) => {
     setIsVisionScanning(true);
     try {
@@ -431,7 +479,12 @@ export const App: React.FC = () => {
         <pointLight position={[playerPos[0], playerPos[1] + 3, playerPos[2]]} intensity={1.2} color="#38bdf8" distance={20} />
 
         <AstraCyclotrope anchorPos={playerPos} />
-        <CameraFollower targetPos={playerPos} yaw={cameraYaw} />
+        <CameraFollower
+          targetPos={playerPos}
+          yaw={cameraYaw}
+          pitch={cameraPitch}
+          jumpOffset={currentP.jumpY}
+        />
         <AstraTerrain playerPos={playerPos} />
 
         {/* Cardboard Props Field with Topple & Wobble Physics */}
@@ -458,7 +511,6 @@ export const App: React.FC = () => {
           currentAnimation={companionAction}
           skinColor="#38bdf8"
           isCompanion
-          speechText={companionSpeech}
         />
 
         {/* Embodied First-Person Optical Eye Rig */}
