@@ -59,13 +59,15 @@ export const App: React.FC = () => {
   // 4D Spatiotemporal Journal Records
   const [memories, setMemories] = useState<MemoryEpisode[]>([]);
 
-  // Dwell Tracking Engine (Tracks how long you linger in a spot)
+  // Dwell Tracking Engine with strict deduplication
   const lastDwellPos = useRef<{ x: number; z: number }>({ x: 0, z: 0 });
   const dwellStartTime = useRef<number>(Date.now());
+  const hasLoggedCurrentDwell = useRef<boolean>(false);
+  const lastMemoryLogTime = useRef<number>(0);
 
-  // Load existing episodes on boot
+  // Load existing episodes on boot (capped to latest 50 to prevent memory bloating)
   useEffect(() => {
-    getAllEpisodes().then(setMemories);
+    getAllEpisodes().then(eps => setMemories(eps.slice(0, 50)));
   }, []);
 
   // Vision State (llava:latest)
@@ -76,7 +78,7 @@ export const App: React.FC = () => {
     {
       id: '1',
       sender: 'companion',
-      text: 'Systems nominal, Zak. 4D Spatiotemporal memory lattice & cardboard physics active.',
+      text: 'Systems nominal, Zak. Memory rate limiter & deduplication engine active.',
       timestamp: Date.now()
     }
   ]);
@@ -100,6 +102,30 @@ export const App: React.FC = () => {
     actionTimeoutRef.current = setTimeout(() => {
       setPlayerAction('Idle_Loop');
     }, durationMs);
+  }, []);
+
+  // Helper to safely commit a memory with rate limiting & deduplication
+  const recordUniqueMemory = useCallback(async (
+    coords: [number, number, number],
+    observation: string,
+    source: 'visual_scan' | 'prop_interaction' | 'spontaneous_thought',
+    dwellSec: number
+  ) => {
+    const now = Date.now();
+    // Enforce minimum 8 seconds cooldown between ANY journal writes
+    if (now - lastMemoryLogTime.current < 8000) return;
+    lastMemoryLogTime.current = now;
+
+    const newEp = await saveEpisode({
+      coords,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      rawTime: now,
+      dwellSeconds: dwellSec,
+      observation,
+      source
+    });
+
+    setMemories(prev => [newEp, ...prev.slice(0, 49)]); // Maintain bounded ring buffer of 50
   }, []);
 
   // Main 60 FPS Game Loop
@@ -160,38 +186,35 @@ export const App: React.FC = () => {
           setPlayerRot([0, currentP.rotY, 0]);
           setPlayerPos([currentP.x, currentP.y, currentP.z]);
 
-          // Moving resets dwell timer
-          lastDwellPos.current = { x: currentP.x, z: currentP.z };
-          dwellStartTime.current = Date.now();
+          // Moving resets dwell timer & unlocks one-time dwell logging
+          const distFromLastDwell = Math.hypot(currentP.x - lastDwellPos.current.x, currentP.z - lastDwellPos.current.z);
+          if (distFromLastDwell > 5.0) {
+            lastDwellPos.current = { x: currentP.x, z: currentP.z };
+            dwellStartTime.current = Date.now();
+            hasLoggedCurrentDwell.current = false;
+          }
         } else {
           setPlayerAction(prev => (prev === 'Idle_Talking_Loop' || prev === 'Sitting_Idle_Loop') ? prev : 'Idle_Loop');
 
-          // Dwell check: If we lingered > 20s without a log, trigger an idle contemplation
+          // STRICT SINGLE LOG PER REST: Only log ONCE per stationary session after 25s
           const dwellSeconds = (Date.now() - dwellStartTime.current) / 1000;
-          if (dwellSeconds > 22 && dwellSeconds < 23) {
+          if (dwellSeconds > 25 && !hasLoggedCurrentDwell.current) {
+            hasLoggedCurrentDwell.current = true;
             const coordStr = format4DCoordinate(currentP.x, currentP.z, dwellSeconds);
-            const observation = `At ${coordStr}, Zak and I rested together on the ridge. The breeze gently swayed the pines.`;
-            saveEpisode({
-              coords: [currentP.x, currentP.y, currentP.z],
-              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-              rawTime: Date.now(),
-              dwellSeconds,
-              observation,
-              source: 'spontaneous_thought'
-            }).then(ep => setMemories(prev => [ep, ...prev]));
+            const observation = `At ${coordStr}, Zak and I paused on the ridge. The breeze gently swayed the pines.`;
+            recordUniqueMemory([currentP.x, currentP.y, currentP.z], observation, 'spontaneous_thought', dwellSeconds);
           }
         }
       }
 
-      // 3. COMPANION ENGINE (TETHERED vs. AUTONOMOUS FREE-WILL ROAM)
+      // 3. COMPANION ENGINE
       let targetX = currentP.x;
       let targetZ = currentP.z;
 
       if (isAutonomousWander) {
-        // Pick random landmark or waypoint in a 40m radius
-        if (!wanderTargetRef.current || Math.random() < 0.005) {
+        if (!wanderTargetRef.current || Math.random() < 0.003) {
           const wanderAngle = Math.random() * Math.PI * 2;
-          const wanderDist = 10 + Math.random() * 25;
+          const wanderDist = 12 + Math.random() * 20;
           wanderTargetRef.current = {
             x: currentP.x + Math.sin(wanderAngle) * wanderDist,
             z: currentP.z + Math.cos(wanderAngle) * wanderDist
@@ -219,7 +242,6 @@ export const App: React.FC = () => {
         setCompanionPos([currentC.x, currentC.y, currentC.z]);
       } else {
         if (isAutonomousWander) {
-          // In autonomous wander, companion randomly interacts, inspects, or dances!
           const idlePick: AnimationName[] = ['Interact', 'Dance_Loop', 'PickUp_Table', 'Idle_Loop'];
           const chosen = idlePick[Math.floor(Math.random() * idlePick.length)];
           setCompanionAction(chosen);
@@ -263,27 +285,19 @@ export const App: React.FC = () => {
 
     animId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(animId);
-  }, [gamepad, cameraYaw, playerAction, isAutonomousWander, triggerOneShotPlayerAction]);
+  }, [gamepad, cameraYaw, playerAction, isAutonomousWander, triggerOneShotPlayerAction, recordUniqueMemory]);
 
-  // Prop Strike Event -> Logs to 4D Journal!
+  // Prop Strike Event -> Debounced & Deduplicated
   const handlePropStruck = (prop: InteractiveProp) => {
     const dwellSeconds = (Date.now() - dwellStartTime.current) / 1000;
     const coordStr = format4DCoordinate(prop.pos[0], prop.pos[2], dwellSeconds);
 
     const actionDesc = prop.isKnockedDown
       ? `At ${coordStr}, Zak struck down ${prop.name}! The cardboard timber toppled onto the Astra grid.`
-      : `At ${coordStr}, Zak struck ${prop.name}, causing the cardboard cutout to wobble vigorously!`;
+      : `At ${coordStr}, Zak struck ${prop.name}, causing the cutout to wobble!`;
 
     setCompanionSpeech(actionDesc);
-
-    saveEpisode({
-      coords: prop.pos,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      rawTime: Date.now(),
-      dwellSeconds,
-      observation: actionDesc,
-      source: 'prop_interaction'
-    }).then(ep => setMemories(prev => [ep, ...prev]));
+    recordUniqueMemory(prop.pos, actionDesc, 'prop_interaction', dwellSeconds);
   };
 
   // Chat with Local Ollama: myos-cortex:latest (Wired to Semantic Memory Recall)
@@ -296,7 +310,6 @@ export const App: React.FC = () => {
     };
     setMessages(prev => [...prev, userMsg]);
 
-    // Query 4D memories via mxbai-embed-large
     const relevantMemories = await queryMemories(text, 2);
     const memoryContext = relevantMemories.length > 0
       ? `Relevant past memories from your 4D journal:\n${relevantMemories.map(m => `- ${m.observation}`).join('\n')}\n`
@@ -350,7 +363,7 @@ export const App: React.FC = () => {
     }
   };
 
-  // Optical Perception Loop with Local llava:latest -> Automatically commits to 4D Journal
+  // Optical Perception Loop with Local llava:latest
   const handleScanWithLlava = async (base64Img: string) => {
     setIsVisionScanning(true);
     try {
@@ -375,14 +388,7 @@ export const App: React.FC = () => {
         const coordStr = format4DCoordinate(currentC.x, currentC.z, dwellSeconds);
         const journalEntry = `At ${coordStr}, through my eyes: ${description}`;
 
-        saveEpisode({
-          coords: [currentC.x, currentC.y, currentC.z],
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          rawTime: Date.now(),
-          dwellSeconds,
-          observation: journalEntry,
-          source: 'visual_scan'
-        }).then(ep => setMemories(prev => [ep, ...prev]));
+        recordUniqueMemory([currentC.x, currentC.y, currentC.z], journalEntry, 'visual_scan', dwellSeconds);
 
         setMessages(prev => [...prev, {
           id: Date.now().toString(),
