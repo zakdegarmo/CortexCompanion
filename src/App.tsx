@@ -4,13 +4,14 @@ import * as THREE from 'three';
 import { FleshGolem } from './components/FleshGolem';
 import { AstraTerrain } from './components/AstraTerrain';
 import { AstraCyclotrope } from './components/AstraCyclotrope';
-import { CardboardPropField, InteractiveProp } from './components/CardboardPropField';
+import { CardboardPropField, InteractiveProp, BiomeType, SeasonType } from './components/CardboardPropField';
 import { CompanionEyeRig } from './components/CompanionEyeRig';
 import { CompanionOpticalMonitor } from './components/CompanionOpticalMonitor';
 import { CompanionHUD } from './components/CompanionHUD';
 import { useGamepad } from './hooks/useGamepad';
 import { AnimationName, CompanionTelemetry, ChatMessage } from './types';
 import { getAstraElevation } from './utils/elevation';
+import { FaerunLocation } from './services/ForgottenRealmsLore';
 import {
   saveEpisode,
   getAllEpisodes,
@@ -74,6 +75,11 @@ export const App: React.FC = () => {
   // Autonomous Roam & Free-Will Mode Toggle
   const [isAutonomousWander, setIsAutonomousWander] = useState(false);
   const wanderTargetRef = useRef<{ x: number; z: number } | null>(null);
+
+  // Seasonal Theme & Biome Selection
+  const [activeSeason, setActiveSeason] = useState<SeasonType>('summer');
+  const [activeBiome, setActiveBiome] = useState<BiomeType>('temperate');
+  const [currentPOI, setCurrentPOI] = useState<FaerunLocation | null>(null);
 
   // 4D Spatiotemporal Journal Records
   const [memories, setMemories] = useState<MemoryEpisode[]>([]);
@@ -348,6 +354,31 @@ export const App: React.FC = () => {
     recordUniqueMemory(prop.pos, actionDesc, 'prop_interaction', dwellSeconds);
   };
 
+  // Forgotten Realms Lore Recitation
+  const handleReciteFaerunLore = useCallback(async (poi: FaerunLocation, loreText: string) => {
+    setCompanionAction('Idle_Talking_Loop');
+    const speech = `Recorded in the chronicles of ${poi.name}: ${loreText.slice(0, 160)}...`;
+    setCompanionSpeech(speech);
+
+    const dwellSeconds = (Date.now() - dwellStartTime.current) / 1000;
+    const coordStr = format4DCoordinate(poi.worldCoords[0], poi.worldCoords[1], dwellSeconds);
+    const observation = `At ${coordStr}, explored ${poi.name} (${poi.region}): ${loreText.slice(0, 220)}`;
+
+    await recordUniqueMemory([poi.worldCoords[0], getAstraElevation(poi.worldCoords[0], poi.worldCoords[1]), poi.worldCoords[1]], observation, 'prop_interaction', dwellSeconds);
+
+    setMessages(prev => [...prev, {
+      id: Date.now().toString(),
+      sender: 'companion',
+      text: `📜 [Faerûn Canon - ${poi.name}]: ${loreText}`,
+      timestamp: Date.now(),
+      actionTriggered: 'Idle_Talking_Loop'
+    }]);
+
+    setTimeout(() => {
+      setCompanionAction('Idle_Loop');
+    }, 4500);
+  }, [recordUniqueMemory]);
+
   // Chat with Local Ollama: myos-cortex:latest
   const handleSendMessage = async (text: string) => {
     const userMsg: ChatMessage = {
@@ -491,7 +522,10 @@ export const App: React.FC = () => {
         <CardboardPropField
           playerPos={playerPos}
           playerAction={playerAction}
+          activeSeason={activeSeason}
+          activeBiome={activeBiome}
           onPropStruck={handlePropStruck}
+          onNearPOI={setCurrentPOI}
         />
 
         {/* Player Flesh Golem (Warm Amber) */}
@@ -533,11 +567,17 @@ export const App: React.FC = () => {
         gamepad={gamepad}
         messages={messages}
         memories={memories}
+        activeSeason={activeSeason}
+        activeBiome={activeBiome}
+        currentPOI={currentPOI}
+        onSelectSeason={setActiveSeason}
+        onSelectBiome={setActiveBiome}
         onSendMessage={handleSendMessage}
         onTriggerCompanionAction={(act) => setCompanionAction(act)}
         onTriggerPlayerAction={(act) => triggerOneShotPlayerAction(act)}
         isAutonomousWandering={isAutonomousWander}
         onToggleAutonomousWander={() => setIsAutonomousWander(prev => !prev)}
+        onReciteFaerunLore={handleReciteFaerunLore}
       />
     </div>
   );

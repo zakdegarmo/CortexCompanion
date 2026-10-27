@@ -2,18 +2,49 @@ import React, { useState } from 'react';
 import { ALL_ANIMATIONS, AnimationName, CompanionTelemetry, ChatMessage } from '../types';
 import { GamepadState } from '../hooks/useGamepad';
 import { MemoryEpisode } from '../services/SpatiotemporalMemory';
-import { Play, Sparkles, Send, Gamepad2, Brain, Compass, MessageSquare, BookOpen, Clock, MapPin } from 'lucide-react';
+import { BiomeType, SeasonType } from './CardboardPropField';
+import {
+  CANONICAL_FAERUN_LOCATIONS,
+  FaerunLocation,
+  searchForgottenRealms,
+  fetchFaerunArticleLead
+} from '../services/ForgottenRealmsLore';
+import {
+  Play,
+  Sparkles,
+  Send,
+  Gamepad2,
+  Brain,
+  Compass,
+  MessageSquare,
+  BookOpen,
+  Clock,
+  MapPin,
+  Trees,
+  Search,
+  ExternalLink,
+  Sun,
+  CloudSnow,
+  Leaf,
+  Flower2
+} from 'lucide-react';
 
 interface CompanionHUDProps {
   telemetry: CompanionTelemetry;
   gamepad: GamepadState;
   messages: ChatMessage[];
   memories: MemoryEpisode[];
+  activeSeason: SeasonType;
+  activeBiome: BiomeType;
+  currentPOI: FaerunLocation | null;
+  onSelectSeason: (s: SeasonType) => void;
+  onSelectBiome: (b: BiomeType) => void;
   onSendMessage: (text: string) => void;
   onTriggerCompanionAction: (action: AnimationName) => void;
   onTriggerPlayerAction: (action: AnimationName) => void;
   isAutonomousWandering: boolean;
   onToggleAutonomousWander: () => void;
+  onReciteFaerunLore: (poi: FaerunLocation, loreText: string) => void;
 }
 
 export const CompanionHUD: React.FC<CompanionHUDProps> = ({
@@ -21,14 +52,25 @@ export const CompanionHUD: React.FC<CompanionHUDProps> = ({
   gamepad,
   messages,
   memories,
+  activeSeason,
+  activeBiome,
+  currentPOI,
+  onSelectSeason,
+  onSelectBiome,
   onSendMessage,
   onTriggerCompanionAction,
   onTriggerPlayerAction,
   isAutonomousWandering,
-  onToggleAutonomousWander
+  onToggleAutonomousWander,
+  onReciteFaerunLore
 }) => {
   const [inputText, setInputText] = useState('');
-  const [activeTab, setActiveTab] = useState<'chat' | 'journal' | 'actions' | 'telemetry'>('chat');
+  const [activeTab, setActiveTab] = useState<'chat' | 'realm' | 'journal' | 'actions' | 'telemetry'>('realm');
+
+  // Forgotten Realms Wiki Search State
+  const [loreSearchQuery, setLoreSearchQuery] = useState('');
+  const [isSearchingLore, setIsSearchingLore] = useState(false);
+  const [selectedPoiDetails, setSelectedPoiDetails] = useState<{ title: string; text: string; url?: string } | null>(null);
 
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,15 +79,49 @@ export const CompanionHUD: React.FC<CompanionHUDProps> = ({
     setInputText('');
   };
 
+  const handleInspectLocation = async (loc: FaerunLocation) => {
+    setIsSearchingLore(true);
+    const lead = await fetchFaerunArticleLead(loc.name.replace(/ /g, '_'));
+    const text = lead || `${loc.summary} ${loc.loreSnippet}`;
+    setSelectedPoiDetails({
+      title: loc.name,
+      text,
+      url: `https://forgottenrealms.fandom.com/wiki/${encodeURIComponent(loc.name)}`
+    });
+    setIsSearchingLore(false);
+  };
+
+  const handleWikiSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!loreSearchQuery.trim()) return;
+    setIsSearchingLore(true);
+    const results = await searchForgottenRealms(loreSearchQuery.trim());
+    if (results.length > 0) {
+      const top = results[0];
+      const lead = await fetchFaerunArticleLead(top.title.replace(/ /g, '_'));
+      setSelectedPoiDetails({
+        title: top.title,
+        text: lead || `Discovered ${top.title} along the Sword Coast.`,
+        url: top.url
+      });
+    } else {
+      setSelectedPoiDetails({
+        title: loreSearchQuery,
+        text: `No exact chronicles found for "${loreSearchQuery}" in the Candlekeep archives.`
+      });
+    }
+    setIsSearchingLore(false);
+  };
+
   return (
     <div style={{
       position: 'absolute',
       top: 0,
       right: 0,
-      width: '400px',
+      width: '420px',
       height: '100%',
-      background: 'rgba(11, 15, 29, 0.9)',
-      backdropFilter: 'blur(14px)',
+      background: 'rgba(11, 15, 29, 0.92)',
+      backdropFilter: 'blur(16px)',
       borderLeft: '1px solid rgba(56, 189, 248, 0.25)',
       display: 'flex',
       flexDirection: 'column',
@@ -55,7 +131,7 @@ export const CompanionHUD: React.FC<CompanionHUDProps> = ({
     }}>
       {/* Header */}
       <div style={{
-        padding: '14px 18px',
+        padding: '12px 16px',
         borderBottom: '1px solid rgba(56, 189, 248, 0.2)',
         display: 'flex',
         alignItems: 'center',
@@ -63,7 +139,7 @@ export const CompanionHUD: React.FC<CompanionHUDProps> = ({
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <Brain style={{ color: '#38bdf8', width: 20, height: 20 }} />
-          <span style={{ fontWeight: 700, fontSize: '1.05rem', letterSpacing: '0.05em' }}>CORTEX COMPANION</span>
+          <span style={{ fontWeight: 700, fontSize: '1.02rem', letterSpacing: '0.05em' }}>CORTEX COMPANION</span>
         </div>
         <div style={{
           fontSize: '0.72rem',
@@ -77,32 +153,65 @@ export const CompanionHUD: React.FC<CompanionHUDProps> = ({
         </div>
       </div>
 
+      {/* Persistent POI Proximity Banner */}
+      {currentPOI && (
+        <div style={{
+          padding: '8px 14px',
+          background: 'linear-gradient(90deg, rgba(2, 132, 199, 0.35), rgba(15, 23, 42, 0.9))',
+          borderBottom: '1px solid #38bdf8',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          fontSize: '0.75rem'
+        }}>
+          <div>
+            <span style={{ color: '#38bdf8', fontWeight: 700 }}>🏛️ NEAR WAYSTONE: </span>
+            <span style={{ color: '#fff', fontWeight: 600 }}>{currentPOI.name}</span>
+            <span style={{ color: '#94a3b8', fontSize: '0.68rem', marginLeft: '4px' }}>({currentPOI.region})</span>
+          </div>
+          <button
+            onClick={() => handleInspectLocation(currentPOI)}
+            style={{
+              padding: '3px 8px',
+              background: '#0284c7',
+              border: 'none',
+              borderRadius: '4px',
+              color: '#fff',
+              fontSize: '0.68rem',
+              cursor: 'pointer',
+              fontWeight: 600
+            }}>
+            INSPECT
+          </button>
+        </div>
+      )}
+
       {/* Autonomous Free-Will Switch Bar */}
       <div style={{
-        padding: '8px 16px',
+        padding: '7px 16px',
         background: isAutonomousWandering ? 'rgba(2, 132, 199, 0.25)' : 'rgba(0, 0, 0, 0.3)',
         borderBottom: '1px solid rgba(56, 189, 248, 0.15)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        fontSize: '0.75rem'
+        fontSize: '0.74rem'
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <Compass size={14} style={{ color: isAutonomousWandering ? '#38bdf8' : '#94a3b8' }} />
-          <span style={{ fontWeight: 600 }}>Autonomous Roam:</span>
+          <Compass size={13} style={{ color: isAutonomousWandering ? '#38bdf8' : '#94a3b8' }} />
+          <span style={{ fontWeight: 600 }}>Roam:</span>
           <span style={{ color: isAutonomousWandering ? '#38bdf8' : '#64748b' }}>
-            {isAutonomousWandering ? 'FREE WILL (EXPLORING)' : 'TETHERED TO PLAYER'}
+            {isAutonomousWandering ? 'FREE WILL' : 'TETHERED'}
           </span>
         </div>
         <button
           onClick={onToggleAutonomousWander}
           style={{
-            padding: '3px 9px',
+            padding: '2px 8px',
             background: isAutonomousWandering ? '#0284c7' : 'rgba(255, 255, 255, 0.1)',
             border: '1px solid rgba(56, 189, 248, 0.3)',
             borderRadius: '4px',
             color: '#fff',
-            fontSize: '0.7rem',
+            fontSize: '0.68rem',
             cursor: 'pointer',
             fontWeight: 600
           }}>
@@ -110,92 +219,291 @@ export const CompanionHUD: React.FC<CompanionHUDProps> = ({
         </button>
       </div>
 
-      {/* Tabs */}
+      {/* Navigation Tabs */}
       <div style={{
         display: 'flex',
         borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
         background: 'rgba(0, 0, 0, 0.2)'
       }}>
         <button
+          onClick={() => setActiveTab('realm')}
+          style={{
+            flex: 1,
+            padding: '9px 0',
+            background: activeTab === 'realm' ? 'rgba(56, 189, 248, 0.15)' : 'transparent',
+            border: 'none',
+            borderBottom: activeTab === 'realm' ? '2px solid #38bdf8' : '2px solid transparent',
+            color: activeTab === 'realm' ? '#38bdf8' : '#94a3b8',
+            cursor: 'pointer',
+            fontSize: '0.78rem',
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '4px'
+          }}>
+          <Trees size={13} /> Faerûn
+        </button>
+        <button
           onClick={() => setActiveTab('chat')}
           style={{
             flex: 1,
-            padding: '10px 0',
+            padding: '9px 0',
             background: activeTab === 'chat' ? 'rgba(56, 189, 248, 0.15)' : 'transparent',
             border: 'none',
             borderBottom: activeTab === 'chat' ? '2px solid #38bdf8' : '2px solid transparent',
             color: activeTab === 'chat' ? '#38bdf8' : '#94a3b8',
             cursor: 'pointer',
-            fontSize: '0.8rem',
+            fontSize: '0.78rem',
             fontWeight: 600,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            gap: '5px'
+            gap: '4px'
           }}>
-          <MessageSquare size={14} /> Chat
+          <MessageSquare size={13} /> Chat
         </button>
         <button
           onClick={() => setActiveTab('journal')}
           style={{
             flex: 1,
-            padding: '10px 0',
+            padding: '9px 0',
             background: activeTab === 'journal' ? 'rgba(56, 189, 248, 0.15)' : 'transparent',
             border: 'none',
             borderBottom: activeTab === 'journal' ? '2px solid #38bdf8' : '2px solid transparent',
             color: activeTab === 'journal' ? '#38bdf8' : '#94a3b8',
             cursor: 'pointer',
-            fontSize: '0.8rem',
+            fontSize: '0.78rem',
             fontWeight: 600,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            gap: '5px'
+            gap: '4px'
           }}>
-          <BookOpen size={14} /> 4D Journal ({memories.length})
+          <BookOpen size={13} /> 4D Journal ({memories.length})
         </button>
         <button
           onClick={() => setActiveTab('actions')}
           style={{
             flex: 1,
-            padding: '10px 0',
+            padding: '9px 0',
             background: activeTab === 'actions' ? 'rgba(56, 189, 248, 0.15)' : 'transparent',
             border: 'none',
             borderBottom: activeTab === 'actions' ? '2px solid #38bdf8' : '2px solid transparent',
             color: activeTab === 'actions' ? '#38bdf8' : '#94a3b8',
             cursor: 'pointer',
-            fontSize: '0.8rem',
+            fontSize: '0.78rem',
             fontWeight: 600,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            gap: '5px'
+            gap: '4px'
           }}>
-          <Sparkles size={14} /> 45 Clips
-        </button>
-        <button
-          onClick={() => setActiveTab('telemetry')}
-          style={{
-            flex: 1,
-            padding: '10px 0',
-            background: activeTab === 'telemetry' ? 'rgba(56, 189, 248, 0.15)' : 'transparent',
-            border: 'none',
-            borderBottom: activeTab === 'telemetry' ? '2px solid #38bdf8' : '2px solid transparent',
-            color: activeTab === 'telemetry' ? '#38bdf8' : '#94a3b8',
-            cursor: 'pointer',
-            fontSize: '0.8rem',
-            fontWeight: 600,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '5px'
-          }}>
-          <Compass size={14} /> Telemetry
+          <Sparkles size={13} /> Clips
         </button>
       </div>
 
       {/* Main Tab Content */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '16px' }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '14px' }}>
+        {/* TAB 1: FAERÛN REALM & X-TREE BIOMES */}
+        {activeTab === 'realm' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            {/* Season Selector */}
+            <div style={{
+              background: 'rgba(15, 23, 42, 0.8)',
+              padding: '12px',
+              borderRadius: '8px',
+              border: '1px solid rgba(56, 189, 248, 0.2)'
+            }}>
+              <div style={{ fontSize: '0.76rem', fontWeight: 700, color: '#38bdf8', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Sun size={14} /> ACTIVE SEASONAL PALETTE
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px' }}>
+                {(['spring', 'summer', 'autumn', 'winter'] as SeasonType[]).map(season => {
+                  const isSelected = activeSeason === season;
+                  const icons = {
+                    spring: <Flower2 size={12} />,
+                    summer: <Sun size={12} />,
+                    autumn: <Leaf size={12} />,
+                    winter: <CloudSnow size={12} />
+                  };
+                  return (
+                    <button
+                      key={season}
+                      onClick={() => onSelectSeason(season)}
+                      style={{
+                        padding: '6px 4px',
+                        background: isSelected ? '#0284c7' : 'rgba(30, 41, 59, 0.8)',
+                        border: isSelected ? '1px solid #38bdf8' : '1px solid rgba(255, 255, 255, 0.1)',
+                        borderRadius: '6px',
+                        color: isSelected ? '#fff' : '#94a3b8',
+                        fontSize: '0.72rem',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '4px',
+                        textTransform: 'capitalize'
+                      }}>
+                      {icons[season]} {season}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Combinatorial X-Tree Engine Metrics */}
+            <div style={{
+              background: 'rgba(15, 23, 42, 0.7)',
+              padding: '10px 12px',
+              borderRadius: '8px',
+              border: '1px solid rgba(56, 189, 248, 0.15)',
+              fontSize: '0.74rem',
+              color: '#94a3b8'
+            }}>
+              <div style={{ color: '#38bdf8', fontWeight: 700, marginBottom: '4px' }}>
+                🌲 DOUBLE-BILLBOARD ("X-TREE") MATRIX
+              </div>
+              <div>
+                Formula: <code style={{ color: '#4ade80' }}>11 NS × 11 EW × 6 Biomes × 4 Seasons</code>
+              </div>
+              <div style={{ marginTop: '2px', color: '#e2e8f0', fontWeight: 600 }}>
+                = 2,904 Combinatorial Procedural Trees
+              </div>
+              <div style={{ fontSize: '0.68rem', color: '#64748b', marginTop: '4px' }}>
+                Perpendicular double-planes (45° cross) provide omnidirectional volumetric depth & tip over on combat impact.
+              </div>
+            </div>
+
+            {/* Forgotten Realms Live Wiki Search */}
+            <div style={{
+              background: 'rgba(15, 23, 42, 0.8)',
+              padding: '12px',
+              borderRadius: '8px',
+              border: '1px solid rgba(56, 189, 248, 0.2)'
+            }}>
+              <div style={{ fontSize: '0.76rem', fontWeight: 700, color: '#38bdf8', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Search size={14} /> FORGOTTEN REALMS FANDOM API
+              </div>
+              <form onSubmit={handleWikiSearch} style={{ display: 'flex', gap: '6px', marginBottom: '10px' }}>
+                <input
+                  type="text"
+                  value={loreSearchQuery}
+                  onChange={e => setLoreSearchQuery(e.target.value)}
+                  placeholder="Query lore (e.g. Baldur's Gate, Mystra)..."
+                  style={{
+                    flex: 1,
+                    padding: '6px 10px',
+                    borderRadius: '6px',
+                    border: '1px solid rgba(56, 189, 248, 0.3)',
+                    background: 'rgba(30, 41, 59, 0.9)',
+                    color: '#fff',
+                    fontSize: '0.75rem',
+                    outline: 'none'
+                  }}
+                />
+                <button
+                  type="submit"
+                  disabled={isSearchingLore}
+                  style={{
+                    padding: '6px 12px',
+                    background: '#0284c7',
+                    border: 'none',
+                    borderRadius: '6px',
+                    color: '#fff',
+                    fontSize: '0.72rem',
+                    cursor: 'pointer',
+                    fontWeight: 600
+                  }}>
+                  {isSearchingLore ? '...' : 'QUERY'}
+                </button>
+              </form>
+
+              {/* Quick Canonical Landmarks */}
+              <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: '6px' }}>Sword Coast Waystones:</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
+                {CANONICAL_FAERUN_LOCATIONS.map(loc => (
+                  <button
+                    key={loc.id}
+                    onClick={() => handleInspectLocation(loc)}
+                    style={{
+                      padding: '4px 8px',
+                      background: 'rgba(30, 41, 59, 0.9)',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                      borderRadius: '4px',
+                      color: '#e2e8f0',
+                      fontSize: '0.68rem',
+                      cursor: 'pointer'
+                    }}>
+                    📍 {loc.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Lore Details Card */}
+            {selectedPoiDetails && (
+              <div style={{
+                background: 'rgba(15, 23, 42, 0.9)',
+                padding: '12px',
+                borderRadius: '8px',
+                border: '1px solid #38bdf8',
+                fontSize: '0.78rem'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                  <span style={{ fontWeight: 700, color: '#38bdf8', fontSize: '0.85rem' }}>{selectedPoiDetails.title}</span>
+                  {selectedPoiDetails.url && (
+                    <a
+                      href={selectedPoiDetails.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '3px', textDecoration: 'none' }}>
+                      Wiki <ExternalLink size={10} />
+                    </a>
+                  )}
+                </div>
+                <div style={{ color: '#cbd5e1', lineHeight: '1.45', marginBottom: '10px' }}>
+                  {selectedPoiDetails.text}
+                </div>
+                <button
+                  onClick={() => {
+                    const matchedLoc = CANONICAL_FAERUN_LOCATIONS.find(l => l.name === selectedPoiDetails.title) || {
+                      id: 'custom_poi',
+                      name: selectedPoiDetails.title,
+                      aliases: [],
+                      region: 'Faerûn',
+                      summary: selectedPoiDetails.text,
+                      loreSnippet: '',
+                      biome: 'temperate' as BiomeType,
+                      poiType: 'waystone' as const,
+                      worldCoords: [0, 0] as [number, number]
+                    };
+                    onReciteFaerunLore(matchedLoc, selectedPoiDetails.text);
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    background: 'linear-gradient(90deg, #0284c7, #2563eb)',
+                    border: 'none',
+                    borderRadius: '6px',
+                    color: '#fff',
+                    fontWeight: 600,
+                    fontSize: '0.74rem',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px'
+                  }}>
+                  <Brain size={14} /> RECITE LORE VIA CORTEX (LOG 4D MEMORY)
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB 2: CHAT WITH MYOS CORTEX */}
         {activeTab === 'chat' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             <div style={{
@@ -206,7 +514,7 @@ export const CompanionHUD: React.FC<CompanionHUDProps> = ({
               borderRadius: '6px',
               border: '1px solid rgba(56, 189, 248, 0.15)'
             }}>
-              💡 Wired to MyOS Cortex on localhost:11434. Memories and observations are indexed by mxbai-embed-large.
+              💡 Wired to MyOS Cortex on localhost:11434. 4D spatiotemporal memory indexed by mxbai-embed-large.
             </div>
 
             {/* Message Feed */}
@@ -246,7 +554,7 @@ export const CompanionHUD: React.FC<CompanionHUDProps> = ({
           </div>
         )}
 
-        {/* 4D Spatiotemporal Journal */}
+        {/* TAB 3: 4D SPATIOTEMPORAL JOURNAL */}
         {activeTab === 'journal' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
@@ -255,7 +563,7 @@ export const CompanionHUD: React.FC<CompanionHUDProps> = ({
 
             {memories.length === 0 ? (
               <div style={{ padding: '20px', textAlign: 'center', color: '#64748b', fontSize: '0.8rem' }}>
-                No journal entries yet. Linger near a tree, strike down a prop, or hit "SCAN VISION" to record a memory!
+                No journal entries yet. Linger near an X-Tree, topple a prop, inspect a Forgotten Realms waystone, or hit "SCAN VISION" to record a memory!
               </div>
             ) : (
               memories.map(entry => (
@@ -305,6 +613,7 @@ export const CompanionHUD: React.FC<CompanionHUDProps> = ({
           </div>
         )}
 
+        {/* TAB 4: ANIMATION CLIPS OVERRIDE */}
         {activeTab === 'actions' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <div style={{ fontSize: '0.78rem', color: '#94a3b8', marginBottom: '6px' }}>
@@ -331,31 +640,6 @@ export const CompanionHUD: React.FC<CompanionHUDProps> = ({
                   {anim.replace('_Loop', '').replace('_', ' ')}
                 </button>
               ))}
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'telemetry' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', fontSize: '0.82rem' }}>
-            <div style={{ background: 'rgba(0,0,0,0.3)', padding: '12px', borderRadius: '8px' }}>
-              <div style={{ color: '#38bdf8', fontWeight: 600, marginBottom: '6px' }}>PROXIMITY RADAR</div>
-              <div>Distance: <span style={{ color: '#4ade80', fontWeight: 700 }}>{telemetry.distanceToPlayer.toFixed(2)} m</span></div>
-              <div>Player State: <span style={{ color: '#f59e0b' }}>{telemetry.playerAction}</span></div>
-              <div>Companion State: <span style={{ color: '#38bdf8' }}>{telemetry.companionAction}</span></div>
-            </div>
-
-            <div style={{ background: 'rgba(0,0,0,0.3)', padding: '12px', borderRadius: '8px' }}>
-              <div style={{ color: '#38bdf8', fontWeight: 600, marginBottom: '6px' }}>CONTROLLER BINDINGS</div>
-              <div>🕹️ <b>Left Stick / WASD</b>: 360° Walk / Jog / Sprint</div>
-              <div>🕹️ <b>Right Stick</b>: Orbit Camera</div>
-              <div>🟢 <b>A / Space</b>: Jump</div>
-              <div>🔴 <b>B / Shift</b>: Combat Roll (Topples props!)</div>
-              <div>🟦 <b>X / Click</b>: Punch Combo (Strikes props!)</div>
-              <div>🔺 <b>Y / E</b>: Heavy Weapon Attack</div>
-              <div>⚡ <b>RB / Q</b>: Spell Cast Shoot</div>
-              <div>🕺 <b>D-Pad Up / 1</b>: Dance Emote</div>
-              <div>💬 <b>D-Pad Left / 2</b>: Talking Loop</div>
-              <div>🪑 <b>D-Pad Down / 3</b>: Sitting Rest</div>
             </div>
           </div>
         )}
