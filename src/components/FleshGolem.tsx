@@ -32,7 +32,6 @@ export const FleshGolem: React.FC<FleshGolemProps> = ({
   const clonedScene = useMemo(() => {
     const clone = SkeletonUtils.clone(scene) as THREE.Group;
 
-    // Center the model's root bounds so pivoting happens at true center
     clone.traverse((child) => {
       if ((child as THREE.Mesh).isMesh || (child as THREE.SkinnedMesh).isSkinnedMesh) {
         const mesh = child as THREE.Mesh;
@@ -116,9 +115,17 @@ export const FleshGolem: React.FC<FleshGolemProps> = ({
       scale={1.8} 
       dispose={null}
     >
-      {/* Visual pivot anchored at (0, 0, 0) */}
+      {/* 
+        CRITICAL ROOT-OFFSET COMPENSATION:
+        The rigged Hips in the animation clips have an inherent baked translation of Z = +1.18m.
+        By counter-offsetting the cloned scene by Z = -1.18m inside visualPivotRef,
+        the character model's torso and feet align exactly with the coordinate origin (0, 0, 0)!
+        This completely eliminates the "revolving around an invisible center" bug.
+      */}
       <group ref={visualPivotRef}>
-        <primitive object={clonedScene} />
+        <group position={[0, 0, -1.18]}>
+          <primitive object={clonedScene} />
+        </group>
       </group>
 
       {/* Floating Name Beacon */}
