@@ -23,12 +23,9 @@ export const FleshGolem: React.FC<FleshGolemProps> = ({
   isCompanion = false,
 }) => {
   const groupRef = useRef<THREE.Group>(null);
-  const visualPivotRef = useRef<THREE.Group>(null);
   const { scene, animations } = useGLTF(modelPath);
 
-  const targetQuat = useMemo(() => new THREE.Quaternion(), []);
-
-  // Clone armature with SkeletonUtils to retain bone weights
+  // Deep clone with SkeletonUtils
   const clonedScene = useMemo(() => {
     const clone = SkeletonUtils.clone(scene) as THREE.Group;
 
@@ -59,7 +56,26 @@ export const FleshGolem: React.FC<FleshGolemProps> = ({
     return clone;
   }, [scene, skinColor, isCompanion]);
 
-  const { actions } = useAnimations(animations, clonedScene);
+  // Strip root Z-offset from translation tracks on the animation clips so animations pivot in place
+  const cleanedAnimations = useMemo(() => {
+    return animations.map(clip => {
+      const clonedClip = clip.clone();
+      clonedClip.tracks.forEach(track => {
+        // Find Hips translation track
+        if (track.name.toLowerCase().includes('hips.position')) {
+          const values = track.values;
+          // values array is [x0, y0, z0, x1, y1, z1, ...]
+          for (let i = 2; i < values.length; i += 3) {
+            // Subtract the ~1.18m baked offset from Z values
+            values[i] -= 1.18;
+          }
+        }
+      });
+      return clonedClip;
+    });
+  }, [animations]);
+
+  const { actions } = useAnimations(cleanedAnimations, clonedScene);
   const activeActionRef = useRef<THREE.AnimationAction | null>(null);
 
   useEffect(() => {
@@ -96,14 +112,12 @@ export const FleshGolem: React.FC<FleshGolemProps> = ({
 
   }, [currentAnimation, actions]);
 
-  // Pivot orientation cleanly at exact center
-  useFrame((_, delta) => {
+  // Direct transform updates:
+  // Root position at world coordinates, clean Y-axis rotation
+  useFrame(() => {
     if (groupRef.current) {
       groupRef.current.position.set(position[0], position[1], position[2]);
-    }
-    if (visualPivotRef.current) {
-      targetQuat.setFromEuler(new THREE.Euler(0, rotation[1], 0, 'YXZ'));
-      visualPivotRef.current.quaternion.slerp(targetQuat, Math.min(delta * 18, 1));
+      groupRef.current.rotation.set(0, rotation[1], 0);
     }
   });
 
@@ -115,18 +129,7 @@ export const FleshGolem: React.FC<FleshGolemProps> = ({
       scale={1.8} 
       dispose={null}
     >
-      {/* 
-        CRITICAL ROOT-OFFSET COMPENSATION:
-        The rigged Hips in the animation clips have an inherent baked translation of Z = +1.18m.
-        By counter-offsetting the cloned scene by Z = -1.18m inside visualPivotRef,
-        the character model's torso and feet align exactly with the coordinate origin (0, 0, 0)!
-        This completely eliminates the "revolving around an invisible center" bug.
-      */}
-      <group ref={visualPivotRef}>
-        <group position={[0, 0, -1.18]}>
-          <primitive object={clonedScene} />
-        </group>
-      </group>
+      <primitive object={clonedScene} />
 
       {/* Floating Name Beacon */}
       {isCompanion && (
