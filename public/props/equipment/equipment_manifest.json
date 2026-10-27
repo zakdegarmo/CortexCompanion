@@ -1,0 +1,128 @@
+[
+  {
+    "id": "item_moonblade",
+    "name": "Moonblade Longsword",
+    "slot": "mainhand",
+    "weight": 3.0,
+    "stats": "1d8+2 Slashing",
+    "rarity": "Rare",
+    "icon": "/props/equipment/item_moonblade.png"
+  },
+  {
+    "id": "item_silver_dagger",
+    "name": "Silvered Dagger",
+    "slot": "mainhand",
+    "weight": 1.0,
+    "stats": "1d4 Piercing",
+    "rarity": "Common",
+    "icon": "/props/equipment/item_silver_dagger.png"
+  },
+  {
+    "id": "item_astral_staff",
+    "name": "Astral Pine Staff",
+    "slot": "mainhand",
+    "weight": 4.0,
+    "stats": "1d6 Bludgeoning + Force",
+    "rarity": "Rare",
+    "icon": "/props/equipment/item_astral_staff.png"
+  },
+  {
+    "id": "item_sun_blade",
+    "name": "Sun Blade of Lathander",
+    "slot": "mainhand",
+    "weight": 3.0,
+    "stats": "1d8 Radiant",
+    "rarity": "Legendary",
+    "icon": "/props/equipment/item_sun_blade.png"
+  },
+  {
+    "id": "item_kite_shield",
+    "name": "Kite Shield of Tempus",
+    "slot": "offhand",
+    "weight": 6.0,
+    "stats": "+2 Armor Class",
+    "rarity": "Uncommon",
+    "icon": "/props/equipment/item_kite_shield.png"
+  },
+  {
+    "id": "item_spell_tome",
+    "name": "Candlekeep Spell Tome",
+    "slot": "offhand",
+    "weight": 3.0,
+    "stats": "+1 Spell DC",
+    "rarity": "Rare",
+    "icon": "/props/equipment/item_spell_tome.png"
+  },
+  {
+    "id": "item_iron_helm",
+    "name": "Iron Vanguard Helm",
+    "slot": "head",
+    "weight": 4.0,
+    "stats": "+1 AC, Resists Stun",
+    "rarity": "Common",
+    "icon": "/props/equipment/item_iron_helm.png"
+  },
+  {
+    "id": "item_circlet_selune",
+    "name": "Silver Circlet of Sel\u00fbne",
+    "slot": "head",
+    "weight": 0.5,
+    "stats": "+2 Wisdom, Darkvision",
+    "rarity": "Legendary",
+    "icon": "/props/equipment/item_circlet_selune.png"
+  },
+  {
+    "id": "item_mithral_chain",
+    "name": "Mithral Chainmail",
+    "slot": "chest",
+    "weight": 18.0,
+    "stats": "+4 AC, No Stealth Disadv.",
+    "rarity": "Rare",
+    "icon": "/props/equipment/item_mithral_chain.png"
+  },
+  {
+    "id": "item_elven_tunic",
+    "name": "High Forest Ranger Tunic",
+    "slot": "chest",
+    "weight": 4.0,
+    "stats": "+2 AC, +10ft Speed",
+    "rarity": "Uncommon",
+    "icon": "/props/equipment/item_elven_tunic.png"
+  },
+  {
+    "id": "item_leather_boots",
+    "name": "Boots of Elvenkind",
+    "slot": "feet",
+    "weight": 2.0,
+    "stats": "Advantage on Stealth",
+    "rarity": "Uncommon",
+    "icon": "/props/equipment/item_leather_boots.png"
+  },
+  {
+    "id": "item_winged_boots",
+    "name": "Winged Astral Greaves",
+    "slot": "feet",
+    "weight": 3.0,
+    "stats": "Fly Speed 30ft",
+    "rarity": "Legendary",
+    "icon": "/props/equipment/item_winged_boots.png"
+  },
+  {
+    "id": "item_ring_protection",
+    "name": "Ring of Protection",
+    "slot": "accessory",
+    "weight": 0.1,
+    "stats": "+1 AC and Saving Throws",
+    "rarity": "Rare",
+    "icon": "/props/equipment/item_ring_protection.png"
+  },
+  {
+    "id": "item_healing_potion",
+    "name": "Greater Healing Potion",
+    "slot": "consumable",
+    "weight": 0.5,
+    "stats": "Restores 4d4+4 HP",
+    "rarity": "Common",
+    "icon": "/props/equipment/item_healing_potion.png"
+  }
+]

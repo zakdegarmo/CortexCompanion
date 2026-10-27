@@ -20,39 +20,39 @@ const SEASON_PALETTES: Record<SeasonType, {
   gridColor: THREE.Color;
 }> = {
   spring: {
-    grassLow: new THREE.Color('#22542a'),
-    grassHigh: new THREE.Color('#388e3c'),
-    soilColor: new THREE.Color('#2d1f14'),
-    rockColor: new THREE.Color('#475569'),
+    grassLow: new THREE.Color('#2e7d32'),
+    grassHigh: new THREE.Color('#4caf50'),
+    soilColor: new THREE.Color('#3a281b'),
+    rockColor: new THREE.Color('#64748b'),
     snowColor: new THREE.Color('#e0f2fe'),
     snowCoverage: 0.0,
-    gridColor: new THREE.Color('#4ade80')
+    gridColor: new THREE.Color('#86efac')
   },
   summer: {
-    grassLow: new THREE.Color('#163820'),
-    grassHigh: new THREE.Color('#2d6a39'),
-    soilColor: new THREE.Color('#281c12'),
-    rockColor: new THREE.Color('#3f4a5a'),
+    grassLow: new THREE.Color('#236330'),
+    grassHigh: new THREE.Color('#388e3c'),
+    soilColor: new THREE.Color('#322216'),
+    rockColor: new THREE.Color('#475569'),
     snowColor: new THREE.Color('#ffffff'),
     snowCoverage: 0.0,
     gridColor: new THREE.Color('#38bdf8')
   },
   autumn: {
-    grassLow: new THREE.Color('#78350f'),
+    grassLow: new THREE.Color('#9a4608'),
     grassHigh: new THREE.Color('#d97706'),
-    soilColor: new THREE.Color('#382012'),
-    rockColor: new THREE.Color('#57534e'),
+    soilColor: new THREE.Color('#442514'),
+    rockColor: new THREE.Color('#6b6155'),
     snowColor: new THREE.Color('#fef3c7'),
     snowCoverage: 0.0,
-    gridColor: new THREE.Color('#f59e0b')
+    gridColor: new THREE.Color('#fbbf24')
   },
   winter: {
-    grassLow: new THREE.Color('#334155'),
-    grassHigh: new THREE.Color('#475569'),
+    grassLow: new THREE.Color('#475569'),
+    grassHigh: new THREE.Color('#64748b'),
     soilColor: new THREE.Color('#1e293b'),
-    rockColor: new THREE.Color('#64748b'),
-    snowColor: new THREE.Color('#f8fafc'),
-    snowCoverage: 0.72,
+    rockColor: new THREE.Color('#94a3b8'),
+    snowColor: new THREE.Color('#f1f8fe'),
+    snowCoverage: 0.78,
     gridColor: new THREE.Color('#93c5fd')
   }
 };
@@ -80,7 +80,7 @@ export const AstraTerrain: React.FC<AstraTerrainProps> = ({
       uRockColor: { value: palette.rockColor.clone() },
       uSnowColor: { value: palette.snowColor.clone() },
       uSnowCoverage: { value: palette.snowCoverage },
-      uSunDirection: { value: new THREE.Vector3(0.5, 0.8, 0.3).normalize() },
+      uSunDirection: { value: new THREE.Vector3(0.5, 0.8, 0.35).normalize() },
       uPlayerPos: { value: new THREE.Vector3(playerPos[0], playerPos[1], playerPos[2]) },
       uGridSpacing: { value: GRID_SIZE },
       uTime: { value: 0 }
@@ -119,7 +119,7 @@ export const AstraTerrain: React.FC<AstraTerrainProps> = ({
           return hill1 + hill2;
         }
 
-        // Analytical normal derivation
+        // Analytical normal derivation for true surface 3D lighting
         vec3 getNormal(vec2 pos) {
           float eps = 0.15;
           float hL = getElevation(vec2(pos.x - eps, pos.y));
@@ -187,31 +187,32 @@ export const AstraTerrain: React.FC<AstraTerrainProps> = ({
           vec2 worldXZ = vWorldPosition.xz;
 
           // 1. Procedural Terrain Texture Layers
-          float soilNoise = fbm(worldXZ * 0.18);
-          float grassNoise = fbm(worldXZ * 0.55 + vec2(soilNoise * 1.5));
-          float microNoise = hash(floor(worldXZ * 3.5));
+          float soilNoise = fbm(worldXZ * 0.12);
+          float grassNoise = fbm(worldXZ * 0.45 + vec2(soilNoise * 1.2));
+          float microNoise = hash(floor(worldXZ * 4.0));
 
-          // Base grass variation
+          // Base grass variation with micro-texture
           vec3 grass = mix(uGrassLow, uGrassHigh, grassNoise);
+          grass += (microNoise - 0.5) * 0.08;
 
           // Loam / Soil patches in hollows or lower elevations
-          float soilBlend = smoothstep(0.40, 0.68, soilNoise);
-          vec3 terrainColor = mix(grass, uSoilColor, soilBlend * 0.45);
+          float soilBlend = smoothstep(0.42, 0.70, soilNoise);
+          vec3 terrainColor = mix(grass, uSoilColor, soilBlend * 0.40);
 
           // Slope detection: steep cliffs expose rock
           float slope = 1.0 - vNormal.y;
-          float rockBlend = smoothstep(0.22, 0.55, slope);
+          float rockBlend = smoothstep(0.20, 0.52, slope);
           terrainColor = mix(terrainColor, uRockColor, rockBlend);
 
           // Winter Snow Accumulation on ridges and flat areas
           if (uSnowCoverage > 0.01) {
-            float snowFactor = smoothstep(0.35, 0.85, (vNormal.y * 0.6 + (vElevation + 2.5) * 0.15 + microNoise * 0.2));
+            float snowFactor = smoothstep(0.30, 0.80, (vNormal.y * 0.65 + (vElevation + 2.5) * 0.15 + microNoise * 0.2));
             terrainColor = mix(terrainColor, uSnowColor, snowFactor * uSnowCoverage);
           }
 
           // 2. Analytical 3D Lighting & Sunlight Diffuse
           float NdotL = max(0.0, dot(vNormal, uSunDirection));
-          float diffuse = NdotL * 0.65 + 0.35; // Ambient lift
+          float diffuse = NdotL * 0.70 + 0.38; // Rich sunlight and sky ambient lift
           vec3 litColor = terrainColor * diffuse;
 
           // 3. Astra Grid Lattice (Antialiased lines via fwidth)
@@ -222,16 +223,16 @@ export const AstraTerrain: React.FC<AstraTerrainProps> = ({
 
           // Player proximity tactical glow on the grid
           float distToPlayer = length(worldXZ - uPlayerPos.xz);
-          float playerGlow = exp(-distToPlayer * 0.045);
+          float playerGlow = exp(-distToPlayer * 0.05);
 
-          // Blend subtle grid lines into terrain
-          float lineIntensity = line * 0.22 + playerGlow * line * 0.58;
+          // Subtle grid integration over the natural grass
+          float lineIntensity = line * 0.16 + playerGlow * line * 0.45;
           vec3 finalColor = mix(litColor, uGridColor, lineIntensity);
 
-          // 4. Distance Atmospheric Cyclotrope Fog
-          float fog = smoothstep(145.0, 45.0, distToPlayer);
-          vec3 horizonFogColor = vec3(0.05, 0.08, 0.16);
-          finalColor = mix(horizonFogColor, finalColor, fog);
+          // 4. Correct Distance Atmospheric Horizon Fog (Fog starts at 60m, full at 160m)
+          float fog = smoothstep(60.0, 160.0, distToPlayer);
+          vec3 horizonFogColor = vec3(0.06, 0.12, 0.22);
+          finalColor = mix(finalColor, horizonFogColor, fog);
 
           gl_FragColor = vec4(finalColor, 1.0);
         }

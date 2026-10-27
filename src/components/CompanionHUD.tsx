@@ -9,6 +9,7 @@ import {
   searchForgottenRealms,
   fetchFaerunArticleLead
 } from '../services/ForgottenRealmsLore';
+import { GroundLeafResource } from './FallingLeavesField';
 import {
   Play,
   Sparkles,
@@ -26,7 +27,9 @@ import {
   Sun,
   CloudSnow,
   Leaf,
-  Flower2
+  Flower2,
+  Shield,
+  Package
 } from 'lucide-react';
 
 interface CompanionHUDProps {
@@ -37,6 +40,8 @@ interface CompanionHUDProps {
   activeSeason: SeasonType;
   activeBiome: BiomeType;
   currentPOI: FaerunLocation | null;
+  nearLeaf: GroundLeafResource | null;
+  gatheredLeaves: Record<string, number>;
   onSelectSeason: (s: SeasonType) => void;
   onSelectBiome: (b: BiomeType) => void;
   onSendMessage: (text: string) => void;
@@ -45,6 +50,8 @@ interface CompanionHUDProps {
   isAutonomousWandering: boolean;
   onToggleAutonomousWander: () => void;
   onReciteFaerunLore: (poi: FaerunLocation, loreText: string) => void;
+  onOpenInventory: () => void;
+  onGatherNearLeaf: () => void;
 }
 
 export const CompanionHUD: React.FC<CompanionHUDProps> = ({
@@ -55,6 +62,8 @@ export const CompanionHUD: React.FC<CompanionHUDProps> = ({
   activeSeason,
   activeBiome,
   currentPOI,
+  nearLeaf,
+  gatheredLeaves,
   onSelectSeason,
   onSelectBiome,
   onSendMessage,
@@ -62,7 +71,9 @@ export const CompanionHUD: React.FC<CompanionHUDProps> = ({
   onTriggerPlayerAction,
   isAutonomousWandering,
   onToggleAutonomousWander,
-  onReciteFaerunLore
+  onReciteFaerunLore,
+  onOpenInventory,
+  onGatherNearLeaf
 }) => {
   const [inputText, setInputText] = useState('');
   const [activeTab, setActiveTab] = useState<'chat' | 'realm' | 'journal' | 'actions' | 'telemetry'>('realm');
@@ -141,17 +152,69 @@ export const CompanionHUD: React.FC<CompanionHUDProps> = ({
           <Brain style={{ color: '#38bdf8', width: 20, height: 20 }} />
           <span style={{ fontWeight: 700, fontSize: '1.02rem', letterSpacing: '0.05em' }}>CORTEX COMPANION</span>
         </div>
-        <div style={{
-          fontSize: '0.72rem',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '6px',
-          color: gamepad.connected ? '#4ade80' : '#94a3b8'
-        }}>
-          <Gamepad2 style={{ width: 15, height: 15 }} />
-          <span>{gamepad.connected ? 'GAMEPAD ON' : 'KEYBOARD'}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <button
+            onClick={onOpenInventory}
+            title="Open D&D Equipment Deck & Encumbrance (I key)"
+            style={{
+              padding: '4px 10px',
+              background: 'linear-gradient(90deg, #0284c7, #2563eb)',
+              border: '1px solid rgba(56, 189, 248, 0.4)',
+              borderRadius: '6px',
+              color: '#fff',
+              fontSize: '0.72rem',
+              fontWeight: 700,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '5px'
+            }}>
+            <Shield size={13} /> DECK [I]
+          </button>
+          <div style={{
+            fontSize: '0.72rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            color: gamepad.connected ? '#4ade80' : '#94a3b8'
+          }}>
+            <Gamepad2 style={{ width: 15, height: 15 }} />
+            <span>{gamepad.connected ? 'GAMEPAD' : 'KEYBOARD'}</span>
+          </div>
         </div>
       </div>
+
+      {/* Near Leaf Resource Proximity Banner */}
+      {nearLeaf && (
+        <div style={{
+          padding: '8px 14px',
+          background: 'linear-gradient(90deg, rgba(16, 185, 129, 0.35), rgba(15, 23, 42, 0.9))',
+          borderBottom: '1px solid #10b981',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          fontSize: '0.75rem'
+        }}>
+          <div>
+            <span style={{ color: '#4ade80', fontWeight: 700 }}>🍃 NEAR FLORA: </span>
+            <span style={{ color: '#fff', fontWeight: 600 }}>{nearLeaf.name}</span>
+          </div>
+          <button
+            onClick={onGatherNearLeaf}
+            style={{
+              padding: '3px 9px',
+              background: '#10b981',
+              border: 'none',
+              borderRadius: '4px',
+              color: '#000',
+              fontSize: '0.70rem',
+              cursor: 'pointer',
+              fontWeight: 700
+            }}>
+            GATHER [E]
+          </button>
+        </div>
+      )}
 
       {/* Persistent POI Proximity Banner */}
       {currentPOI && (

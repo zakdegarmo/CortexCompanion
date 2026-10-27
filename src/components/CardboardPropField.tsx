@@ -8,7 +8,7 @@ import { CANONICAL_FAERUN_LOCATIONS, FaerunLocation } from '../services/Forgotte
 export type BiomeType = 'temperate' | 'tundra' | 'autumn' | 'sakura' | 'underdark' | 'arctic';
 export type SeasonType = 'spring' | 'summer' | 'autumn' | 'winter';
 
-export const OAK_PROFILE_NAMES: string[] = [
+export const TREE_PROFILE_NAMES: string[] = [
   'Ancient Primeval',
   'Broad Umbrella',
   'Slender Spire',
@@ -27,8 +27,8 @@ export interface InteractiveProp {
   type: 'x-tree' | 'monster' | 'poi' | 'chest';
   pos: [number, number, number];
   scale: number;
-  nsTextureUrl: string;
-  ewTextureUrl?: string;
+  nsTextureKey: string;
+  ewTextureKey?: string;
   nsVariantIndex?: number;
   ewVariantIndex?: number;
   comboLabel?: string;
@@ -52,6 +52,22 @@ interface CardboardPropFieldProps {
   onNearPOI?: (poi: FaerunLocation | null) => void;
 }
 
+// Build texture paths dictionary for all 6 biomes (10 NS x 10 EW = 120 tree textures)
+const ALL_TEXTURE_PATHS: Record<string, string> = {
+  monster_golem: '/props/monsters/monster_golem_sentry.png',
+  monster_spider: '/props/monsters/monster_astral_spider.png',
+  monster_skeleton: '/props/monsters/monster_skeleton_guard.png',
+  poi_coffer: '/props/poi/poi_ancient_coffer.png'
+};
+
+const BIOME_PREFIXES = ['oak', 'pine', 'autumn', 'cherry', 'spore', 'winter'];
+BIOME_PREFIXES.forEach(b => {
+  for (let i = 0; i < 10; i++) {
+    ALL_TEXTURE_PATHS[`${b}_ns_${i}`] = `/props/trees/${b}/${b}_ns_${i}.png`;
+    ALL_TEXTURE_PATHS[`${b}_ew_${i}`] = `/props/trees/${b}/${b}_ew_${i}.png`;
+  }
+});
+
 // Seasonal tint filters
 const SEASON_TINTS: Record<SeasonType, string> = {
   spring: '#eaffea',
@@ -68,81 +84,32 @@ export const CardboardPropField: React.FC<CardboardPropFieldProps> = ({
   onPropStruck,
   onNearPOI
 }) => {
-  // Pre-load all 10 NS and 10 EW Oak Variants + Biome Trees, Monsters & POIs
-  const textures = useTexture({
-    // Oak 10 NS Variants (0-9)
-    oak_ns_0: '/props/trees/oak/oak_ns_0.png',
-    oak_ns_1: '/props/trees/oak/oak_ns_1.png',
-    oak_ns_2: '/props/trees/oak/oak_ns_2.png',
-    oak_ns_3: '/props/trees/oak/oak_ns_3.png',
-    oak_ns_4: '/props/trees/oak/oak_ns_4.png',
-    oak_ns_5: '/props/trees/oak/oak_ns_5.png',
-    oak_ns_6: '/props/trees/oak/oak_ns_6.png',
-    oak_ns_7: '/props/trees/oak/oak_ns_7.png',
-    oak_ns_8: '/props/trees/oak/oak_ns_8.png',
-    oak_ns_9: '/props/trees/oak/oak_ns_9.png',
+  // Pre-load all 124 textures (120 biome trees + 4 monsters/POIs)
+  const textures = useTexture(ALL_TEXTURE_PATHS);
 
-    // Oak 10 EW Variants (0-9)
-    oak_ew_0: '/props/trees/oak/oak_ew_0.png',
-    oak_ew_1: '/props/trees/oak/oak_ew_1.png',
-    oak_ew_2: '/props/trees/oak/oak_ew_2.png',
-    oak_ew_3: '/props/trees/oak/oak_ew_3.png',
-    oak_ew_4: '/props/trees/oak/oak_ew_4.png',
-    oak_ew_5: '/props/trees/oak/oak_ew_5.png',
-    oak_ew_6: '/props/trees/oak/oak_ew_6.png',
-    oak_ew_7: '/props/trees/oak/oak_ew_7.png',
-    oak_ew_8: '/props/trees/oak/oak_ew_8.png',
-    oak_ew_9: '/props/trees/oak/oak_ew_9.png',
-
-    // Other Biomes
-    tree_pine_ns: '/props/trees/tree_astral_pine_ns.png',
-    tree_pine_ew: '/props/trees/tree_astral_pine_ew.png',
-    tree_crystal_ns: '/props/trees/tree_crystal_pine_ns.png',
-    tree_crystal_ew: '/props/trees/tree_crystal_pine_ew.png',
-    tree_cherry_ns: '/props/trees/tree_cherry_bloom_ns.png',
-    tree_cherry_ew: '/props/trees/tree_cherry_bloom_ew.png',
-    tree_spore_ns: '/props/trees/tree_underdark_spore_ns.png',
-    tree_spore_ew: '/props/trees/tree_underdark_spore_ew.png',
-
-    // Monsters & POIs
-    monster_golem: '/props/monsters/monster_golem_sentry.png',
-    monster_spider: '/props/monsters/monster_astral_spider.png',
-    monster_skeleton: '/props/monsters/monster_skeleton_guard.png',
-    poi_coffer: '/props/poi/poi_ancient_coffer.png'
-  });
-
-  // Generate an intentional grove of Primal Oaks demonstrating the 10x10=100 matrix
+  // Generate groves across all 6 biomes with 10 NS x 10 EW Combinations
   const [propsList, setPropsList] = useState<InteractiveProp[]>(() => {
     const list: InteractiveProp[] = [];
 
-    // 1. Procedural 10 NS x 10 EW Primal Oak Forest Grove (100 Combinations)
-    // We place 16 distinct oak trees in the immediate landscape, each picking an exact (NS_i x EW_j) combination
+    // 1. High Forest / Primal Oak Grove (Temperate)
     const oakCoords = [
-      { x: -14, z: 12 }, { x: -8, z: 18 }, { x: -22, z: 16 }, { x: -18, z: 24 },
-      { x: 14, z: 10 }, { x: 22, z: 14 }, { x: 18, z: 22 }, { x: 26, z: 8 },
-      { x: -16, z: -14 }, { x: -24, z: -8 }, { x: -12, z: -22 }, { x: -28, z: -20 },
-      { x: 16, z: -12 }, { x: 24, z: -16 }, { x: 10, z: -20 }, { x: 20, z: -26 }
+      { x: -14, z: 12 }, { x: -8, z: 18 }, { x: -22, z: 16 }, { x: -18, z: 24 }
     ];
-
     oakCoords.forEach((coord, idx) => {
-      // Deterministically pick NS variant (0-9) and EW variant (0-9)
       const nsIdx = (idx * 3 + 1) % 10;
       const ewIdx = (idx * 7 + 2) % 10;
-      const comboNum = nsIdx * 10 + ewIdx + 1; // 1 to 100
-      const nsName = OAK_PROFILE_NAMES[nsIdx];
-      const ewName = OAK_PROFILE_NAMES[ewIdx];
-
+      const comboNum = nsIdx * 10 + ewIdx + 1;
       list.push({
-        id: `oak_tree_${idx + 1}`,
-        name: `Primal Oak #${comboNum} [${nsName} × ${ewName}]`,
+        id: `oak_${idx + 1}`,
+        name: `Primal Oak #${comboNum} [${TREE_PROFILE_NAMES[nsIdx]} × ${TREE_PROFILE_NAMES[ewIdx]}]`,
         type: 'x-tree',
         pos: [coord.x, getAstraElevation(coord.x, coord.z), coord.z],
-        scale: 7.6 + (idx % 4) * 0.45,
-        nsTextureUrl: `oak_ns_${nsIdx}`,
-        ewTextureUrl: `oak_ew_${ewIdx}`,
+        scale: 7.6 + (idx % 3) * 0.4,
+        nsTextureKey: `oak_ns_${nsIdx}`,
+        ewTextureKey: `oak_ew_${ewIdx}`,
         nsVariantIndex: nsIdx,
         ewVariantIndex: ewIdx,
-        comboLabel: `NS_${nsIdx} × EW_${ewIdx} (${nsName} × ${ewName})`,
+        comboLabel: `Oak [NS_${nsIdx} × EW_${ewIdx}]`,
         biome: 'temperate',
         isKnockedDown: false,
         knockDirection: [0, 1],
@@ -152,61 +119,154 @@ export const CardboardPropField: React.FC<CardboardPropFieldProps> = ({
       });
     });
 
-    // 2. Additional Biome Landmark Trees
-    list.push({
-      id: 'pine_tree_1',
-      name: 'Azure Astral Pine',
-      type: 'x-tree',
-      pos: [28, getAstraElevation(28, 24), 24],
-      scale: 8.5,
-      nsTextureUrl: 'tree_crystal_ns',
-      ewTextureUrl: 'tree_pine_ew',
-      biome: 'tundra',
-      isKnockedDown: false,
-      knockDirection: [0, 1],
-      knockAngle: 0,
-      wobbleVelocity: 0,
-      health: 2
-    });
-    list.push({
-      id: 'cherry_tree_1',
-      name: 'Myth Drannor Sakura',
-      type: 'x-tree',
-      pos: [-6, getAstraElevation(-6, -12), -12],
-      scale: 7.2,
-      nsTextureUrl: 'tree_cherry_ns',
-      ewTextureUrl: 'tree_cherry_ew',
-      biome: 'sakura',
-      isKnockedDown: false,
-      knockDirection: [0, 1],
-      knockAngle: 0,
-      wobbleVelocity: 0,
-      health: 2
-    });
-    list.push({
-      id: 'spore_tree_1',
-      name: 'Underdark Spore Mushroom',
-      type: 'x-tree',
-      pos: [12, getAstraElevation(12, -28), -28],
-      scale: 6.5,
-      nsTextureUrl: 'tree_spore_ns',
-      ewTextureUrl: 'tree_spore_ew',
-      biome: 'underdark',
-      isKnockedDown: false,
-      knockDirection: [0, 1],
-      knockAngle: 0,
-      wobbleVelocity: 0,
-      health: 2
+    // 2. Spine of the World / Astral Pine Grove (Tundra)
+    const pineCoords = [
+      { x: 18, z: 14 }, { x: 24, z: 20 }, { x: 28, z: 10 }, { x: 16, z: 26 }
+    ];
+    pineCoords.forEach((coord, idx) => {
+      const nsIdx = (idx * 4 + 3) % 10;
+      const ewIdx = (idx * 6 + 1) % 10;
+      const comboNum = nsIdx * 10 + ewIdx + 1;
+      list.push({
+        id: `pine_${idx + 1}`,
+        name: `Astral Pine #${comboNum} [${TREE_PROFILE_NAMES[nsIdx]} × ${TREE_PROFILE_NAMES[ewIdx]}]`,
+        type: 'x-tree',
+        pos: [coord.x, getAstraElevation(coord.x, coord.z), coord.z],
+        scale: 8.2 + (idx % 3) * 0.5,
+        nsTextureKey: `pine_ns_${nsIdx}`,
+        ewTextureKey: `pine_ew_${ewIdx}`,
+        nsVariantIndex: nsIdx,
+        ewVariantIndex: ewIdx,
+        comboLabel: `Pine [NS_${nsIdx} × EW_${ewIdx}]`,
+        biome: 'tundra',
+        isKnockedDown: false,
+        knockDirection: [0, 1],
+        knockAngle: 0,
+        wobbleVelocity: 0,
+        health: 2
+      });
     });
 
-    // 3. Monsters & Guardians
+    // 3. Myth Drannor / Cherry Sakura Grove (Sakura)
+    const cherryCoords = [
+      { x: -8, z: -10 }, { x: -14, z: -8 }, { x: -6, z: -16 }
+    ];
+    cherryCoords.forEach((coord, idx) => {
+      const nsIdx = (idx * 2 + 5) % 10;
+      const ewIdx = (idx * 5 + 3) % 10;
+      const comboNum = nsIdx * 10 + ewIdx + 1;
+      list.push({
+        id: `cherry_${idx + 1}`,
+        name: `Myth Drannor Sakura #${comboNum} [${TREE_PROFILE_NAMES[nsIdx]} × ${TREE_PROFILE_NAMES[ewIdx]}]`,
+        type: 'x-tree',
+        pos: [coord.x, getAstraElevation(coord.x, coord.z), coord.z],
+        scale: 7.2 + (idx % 2) * 0.4,
+        nsTextureKey: `cherry_ns_${nsIdx}`,
+        ewTextureKey: `cherry_ew_${ewIdx}`,
+        nsVariantIndex: nsIdx,
+        ewVariantIndex: ewIdx,
+        comboLabel: `Sakura [NS_${nsIdx} × EW_${ewIdx}]`,
+        biome: 'sakura',
+        isKnockedDown: false,
+        knockDirection: [0, 1],
+        knockAngle: 0,
+        wobbleVelocity: 0,
+        health: 2
+      });
+    });
+
+    // 4. Neverwinter / Autumn Amber Elm Grove (Autumn)
+    const autumnCoords = [
+      { x: 20, z: -12 }, { x: 26, z: -18 }, { x: 14, z: -16 }
+    ];
+    autumnCoords.forEach((coord, idx) => {
+      const nsIdx = (idx * 3 + 2) % 10;
+      const ewIdx = (idx * 4 + 7) % 10;
+      const comboNum = nsIdx * 10 + ewIdx + 1;
+      list.push({
+        id: `autumn_${idx + 1}`,
+        name: `Amber Elm #${comboNum} [${TREE_PROFILE_NAMES[nsIdx]} × ${TREE_PROFILE_NAMES[ewIdx]}]`,
+        type: 'x-tree',
+        pos: [coord.x, getAstraElevation(coord.x, coord.z), coord.z],
+        scale: 7.5 + (idx % 2) * 0.3,
+        nsTextureKey: `autumn_ns_${nsIdx}`,
+        ewTextureKey: `autumn_ew_${ewIdx}`,
+        nsVariantIndex: nsIdx,
+        ewVariantIndex: ewIdx,
+        comboLabel: `Autumn [NS_${nsIdx} × EW_${ewIdx}]`,
+        biome: 'autumn',
+        isKnockedDown: false,
+        knockDirection: [0, 1],
+        knockAngle: 0,
+        wobbleVelocity: 0,
+        health: 2
+      });
+    });
+
+    // 5. Underdark Chasm / Spore Fungi Grove (Underdark)
+    const sporeCoords = [
+      { x: 10, z: -26 }, { x: 16, z: -28 }, { x: 6, z: -22 }
+    ];
+    sporeCoords.forEach((coord, idx) => {
+      const nsIdx = (idx * 5 + 4) % 10;
+      const ewIdx = (idx * 3 + 8) % 10;
+      const comboNum = nsIdx * 10 + ewIdx + 1;
+      list.push({
+        id: `spore_${idx + 1}`,
+        name: `Underdark Spore Cap #${comboNum} [${TREE_PROFILE_NAMES[nsIdx]} × ${TREE_PROFILE_NAMES[ewIdx]}]`,
+        type: 'x-tree',
+        pos: [coord.x, getAstraElevation(coord.x, coord.z), coord.z],
+        scale: 6.4 + (idx % 2) * 0.5,
+        nsTextureKey: `spore_ns_${nsIdx}`,
+        ewTextureKey: `spore_ew_${ewIdx}`,
+        nsVariantIndex: nsIdx,
+        ewVariantIndex: ewIdx,
+        comboLabel: `Spore [NS_${nsIdx} × EW_${ewIdx}]`,
+        biome: 'underdark',
+        isKnockedDown: false,
+        knockDirection: [0, 1],
+        knockAngle: 0,
+        wobbleVelocity: 0,
+        health: 2
+      });
+    });
+
+    // 6. Icewind Dale / Glacial Winter Grove (Arctic)
+    const winterCoords = [
+      { x: -8, z: 26 }, { x: -14, z: 30 }
+    ];
+    winterCoords.forEach((coord, idx) => {
+      const nsIdx = (idx * 4 + 1) % 10;
+      const ewIdx = (idx * 2 + 6) % 10;
+      const comboNum = nsIdx * 10 + ewIdx + 1;
+      list.push({
+        id: `winter_${idx + 1}`,
+        name: `Glacial Frost Birch #${comboNum} [${TREE_PROFILE_NAMES[nsIdx]} × ${TREE_PROFILE_NAMES[ewIdx]}]`,
+        type: 'x-tree',
+        pos: [coord.x, getAstraElevation(coord.x, coord.z), coord.z],
+        scale: 7.8,
+        nsTextureKey: `winter_ns_${nsIdx}`,
+        ewTextureKey: `winter_ew_${ewIdx}`,
+        nsVariantIndex: nsIdx,
+        ewVariantIndex: ewIdx,
+        comboLabel: `Winter [NS_${nsIdx} × EW_${ewIdx}]`,
+        biome: 'arctic',
+        isKnockedDown: false,
+        knockDirection: [0, 1],
+        knockAngle: 0,
+        wobbleVelocity: 0,
+        health: 2
+      });
+    });
+
+    // 7. Monsters & Guardians
     list.push({
       id: 'mob_golem_1',
       name: 'Runic Golem Sentry',
       type: 'monster',
       pos: [-10, getAstraElevation(-10, 4), 4],
       scale: 3.4,
-      nsTextureUrl: 'monster_golem',
+      nsTextureKey: 'monster_golem',
       biome: 'temperate',
       isKnockedDown: false,
       knockDirection: [0, 1],
@@ -220,7 +280,7 @@ export const CardboardPropField: React.FC<CardboardPropFieldProps> = ({
       type: 'monster',
       pos: [8, getAstraElevation(8, 22), 22],
       scale: 2.4,
-      nsTextureUrl: 'monster_spider',
+      nsTextureKey: 'monster_spider',
       biome: 'tundra',
       isKnockedDown: false,
       knockDirection: [0, 1],
@@ -234,7 +294,7 @@ export const CardboardPropField: React.FC<CardboardPropFieldProps> = ({
       type: 'monster',
       pos: [-4, getAstraElevation(-4, -20), -20],
       scale: 2.8,
-      nsTextureUrl: 'monster_skeleton',
+      nsTextureKey: 'monster_skeleton',
       biome: 'underdark',
       isKnockedDown: false,
       knockDirection: [0, 1],
@@ -243,7 +303,7 @@ export const CardboardPropField: React.FC<CardboardPropFieldProps> = ({
       health: 2
     });
 
-    // 4. Canonical Forgotten Realms POI Waystones
+    // 8. Canonical Forgotten Realms POI Waystones
     CANONICAL_FAERUN_LOCATIONS.forEach(loc => {
       list.push({
         id: loc.id,
@@ -251,7 +311,7 @@ export const CardboardPropField: React.FC<CardboardPropFieldProps> = ({
         type: 'poi',
         pos: [loc.worldCoords[0], getAstraElevation(loc.worldCoords[0], loc.worldCoords[1]), loc.worldCoords[1]],
         scale: 2.6,
-        nsTextureUrl: 'poi_coffer',
+        nsTextureKey: 'poi_coffer',
         biome: loc.biome,
         poiData: loc,
         isKnockedDown: false,
@@ -354,8 +414,8 @@ export const CardboardPropField: React.FC<CardboardPropFieldProps> = ({
         const isXTree = prop.type === 'x-tree';
         const isPOI = prop.type === 'poi';
 
-        const nsTex = (textures as Record<string, THREE.Texture>)[prop.nsTextureUrl] || textures.oak_ns_0;
-        const ewTex = prop.ewTextureUrl ? ((textures as Record<string, THREE.Texture>)[prop.ewTextureUrl] || textures.oak_ew_0) : nsTex;
+        const nsTex = (textures as Record<string, THREE.Texture>)[prop.nsTextureKey] || (textures as Record<string, THREE.Texture>).oak_ns_0;
+        const ewTex = prop.ewTextureKey ? ((textures as Record<string, THREE.Texture>)[prop.ewTextureKey] || nsTex) : nsTex;
 
         return (
           <group key={prop.id} position={[prop.pos[0], prop.pos[1], prop.pos[2]]}>

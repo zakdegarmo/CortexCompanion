@@ -5,6 +5,8 @@ import { FleshGolem } from './components/FleshGolem';
 import { AstraTerrain } from './components/AstraTerrain';
 import { AstraCyclotrope } from './components/AstraCyclotrope';
 import { CardboardPropField, InteractiveProp, BiomeType, SeasonType } from './components/CardboardPropField';
+import { FallingLeavesField, GroundLeafResource } from './components/FallingLeavesField';
+import { CardInventoryModal } from './components/CardInventoryModal';
 import { CompanionEyeRig } from './components/CompanionEyeRig';
 import { CompanionOpticalMonitor } from './components/CompanionOpticalMonitor';
 import { CompanionHUD } from './components/CompanionHUD';
@@ -20,26 +22,27 @@ import {
   MemoryEpisode
 } from './services/SpatiotemporalMemory';
 
-// Camera follower rig tracking player avatar with controllable Orbit (Q/E) and Pitch (R/F)
+// Camera follower rig tracking player avatar with controllable Orbit (Q/E) and Pitch (R/F) and Wheel Zoom
 const CameraFollower: React.FC<{
   targetPos: [number, number, number];
   yaw: number;
   pitch: number;
   jumpOffset: number;
-}> = ({ targetPos, yaw, pitch, jumpOffset }) => {
+  zoomDist: number;
+}> = ({ targetPos, yaw, pitch, jumpOffset, zoomDist }) => {
   useFrame(({ camera }, delta) => {
-    const distance = 9.5;
-    // Pitch adjusts the camera height & radius
-    const baseHeight = 4.2;
-    const pitchedHeight = baseHeight + Math.sin(pitch) * 5.0;
-    const pitchedDist = distance * Math.cos(pitch);
+    const distance = zoomDist;
+    // Pitch adjusts the camera height & radius with expanded vertical arc
+    const baseHeight = 3.6;
+    const pitchedHeight = baseHeight + Math.sin(pitch) * 6.2;
+    const pitchedDist = distance * Math.cos(Math.max(-0.45, Math.min(0.85, pitch)));
 
     const targetX = targetPos[0] - Math.sin(yaw) * pitchedDist;
     const targetZ = targetPos[2] - Math.cos(yaw) * pitchedDist;
     const targetY = targetPos[1] + jumpOffset + pitchedHeight;
 
-    camera.position.lerp(new THREE.Vector3(targetX, targetY, targetZ), delta * 10);
-    camera.lookAt(targetPos[0], targetPos[1] + jumpOffset + 1.4, targetPos[2]);
+    camera.position.lerp(new THREE.Vector3(targetX, targetY, targetZ), delta * 12);
+    camera.lookAt(targetPos[0], targetPos[1] + jumpOffset + 1.35, targetPos[2]);
   });
   return null;
 };
@@ -63,9 +66,24 @@ export const App: React.FC = () => {
   const [playerRot, setPlayerRot] = useState<[number, number, number]>([0, 0, 0]);
   const [playerAction, setPlayerAction] = useState<AnimationName>('Idle_Loop');
   
-  // Camera Orbit (Yaw) and Tilt (Pitch)
+  // Camera Orbit (Yaw), Tilt (Pitch), and Zoom Distance (Mouse Wheel)
   const [cameraYaw, setCameraYaw] = useState<number>(0);
   const [cameraPitch, setCameraPitch] = useState<number>(0.15); // gentle default down-angle
+  const [cameraZoom, setCameraZoom] = useState<number>(9.5); // Wheel zoom distance
+
+  // Inventory & Resource Gathering
+  const [isInventoryOpen, setIsInventoryOpen] = useState(false);
+  const [nearLeaf, setNearLeaf] = useState<GroundLeafResource | null>(null);
+  const [gatheredLeaves, setGatheredLeaves] = useState<Record<string, number>>({});
+
+  // Mouse wheel zoom listener (like MyOS)
+  useEffect(() => {
+    const onWheel = (e: WheelEvent) => {
+      setCameraZoom(prev => Math.max(3.8, Math.min(22.0, prev + (e.deltaY > 0 ? 0.9 : -0.9))));
+    };
+    window.addEventListener('wheel', onWheel, { passive: true });
+    return () => window.removeEventListener('wheel', onWheel);
+  }, []);
 
   const [companionPos, setCompanionPos] = useState<[number, number, number]>([currentC.x, currentC.y, currentC.z]);
   const [companionRot, setCompanionRot] = useState<[number, number, number]>([0, 0, 0]);
@@ -106,18 +124,6 @@ export const App: React.FC = () => {
     }
   ]);
 
-  const keys = useRef<{ [k: string]: boolean }>({});
-  useEffect(() => {
-    const onDown = (e: KeyboardEvent) => { keys.current[e.key.toLowerCase()] = true; };
-    const onUp = (e: KeyboardEvent) => { keys.current[e.key.toLowerCase()] = false; };
-    window.addEventListener('keydown', onDown);
-    window.addEventListener('keyup', onUp);
-    return () => {
-      window.removeEventListener('keydown', onDown);
-      window.removeEventListener('keyup', onUp);
-    };
-  }, []);
-
   const actionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const triggerOneShotPlayerAction = useCallback((act: AnimationName, durationMs: number = 800) => {
     if (actionTimeoutRef.current) clearTimeout(actionTimeoutRef.current);
@@ -149,6 +155,50 @@ export const App: React.FC = () => {
     setMemories(prev => [newEp, ...prev.slice(0, 49)]);
   }, []);
 
+  // Leaf Resource Gathering Handler
+  const handleGatherLeaf = useCallback((leaf: GroundLeafResource) => {
+    leaf.collected = true;
+    triggerOneShotPlayerAction('Sitting_Idle_Loop', 700);
+    setGatheredLeaves(prev => ({
+      ...prev,
+      [leaf.name]: (prev[leaf.name] || 0) + 1
+    }));
+    const speech = `Gathered a fresh ${leaf.name}! Added to our adventuring deck.`;
+    setCompanionSpeech(speech);
+    const dwellSeconds = (Date.now() - dwellStartTime.current) / 1000;
+    const coordStr = format4DCoordinate(leaf.pos[0], leaf.pos[2], dwellSeconds);
+    recordUniqueMemory(leaf.pos, `At ${coordStr}, harvested ${leaf.name} resource.`, 'prop_interaction', dwellSeconds);
+    setMessages(prev => [...prev, {
+      id: Date.now().toString(),
+      sender: 'companion',
+      text: `🌿 [Resource Gathered]: ${leaf.name}`,
+      timestamp: Date.now(),
+      actionTriggered: 'Idle_Talking_Loop'
+    }]);
+    setNearLeaf(null);
+  }, [triggerOneShotPlayerAction, recordUniqueMemory]);
+
+  const keys = useRef<{ [k: string]: boolean }>({});
+  useEffect(() => {
+    const onDown = (e: KeyboardEvent) => {
+      const key = e.key.toLowerCase();
+      keys.current[key] = true;
+      if (key === 'i') {
+        setIsInventoryOpen(prev => !prev);
+      }
+      if (key === 'e' && nearLeaf && !nearLeaf.collected) {
+        handleGatherLeaf(nearLeaf);
+      }
+    };
+    const onUp = (e: KeyboardEvent) => { keys.current[e.key.toLowerCase()] = false; };
+    window.addEventListener('keydown', onDown);
+    window.addEventListener('keyup', onUp);
+    return () => {
+      window.removeEventListener('keydown', onDown);
+      window.removeEventListener('keyup', onUp);
+    };
+  }, [nearLeaf, handleGatherLeaf]);
+
   // Main 60 FPS Game Loop
   useEffect(() => {
     let animId: number;
@@ -161,23 +211,23 @@ export const App: React.FC = () => {
       // 1. CAMERA CONTROLS (MyOS Standard: Q/E for Orbit, R/F for Pitch, or Right Stick)
       if (gamepad.connected) {
         if (Math.abs(gamepad.rightStick.x) > 0.05) {
-          setCameraYaw(prev => prev + gamepad.rightStick.x * delta * 2.5);
+          setCameraYaw(prev => prev - gamepad.rightStick.x * delta * 2.5);
         }
         if (Math.abs(gamepad.rightStick.y) > 0.05) {
-          setCameraPitch(prev => Math.max(-0.35, Math.min(0.65, prev - gamepad.rightStick.y * delta * 1.8)));
+          setCameraPitch(prev => Math.max(-0.60, Math.min(1.05, prev + gamepad.rightStick.y * delta * 2.0)));
         }
       } else {
-        // Q / E: Camera Orbit / Rotation
-        if (keys.current['q']) setCameraYaw(prev => prev - delta * 2.2);
-        if (keys.current['e']) setCameraYaw(prev => prev + delta * 2.2);
-        // R / F: Camera Tilt / Pitch
-        if (keys.current['r']) setCameraPitch(prev => Math.min(0.65, prev + delta * 1.5));
-        if (keys.current['f']) setCameraPitch(prev => Math.max(-0.35, prev - delta * 1.5));
+        // Q / E: Camera Orbit / Rotation (Inverted per user request)
+        if (keys.current['q']) setCameraYaw(prev => prev + delta * 2.2);
+        if (keys.current['e']) setCameraYaw(prev => prev - delta * 2.2);
+        // R / F: Camera Tilt / Pitch (Inverted & Expanded Arc per user request)
+        if (keys.current['r']) setCameraPitch(prev => Math.max(-0.60, prev - delta * 1.8));
+        if (keys.current['f']) setCameraPitch(prev => Math.min(1.05, prev + delta * 1.8));
         // Arrow keys fallback
-        if (keys.current['arrowleft']) setCameraYaw(prev => prev - delta * 2.2);
-        if (keys.current['arrowright']) setCameraYaw(prev => prev + delta * 2.2);
-        if (keys.current['arrowup']) setCameraPitch(prev => Math.min(0.65, prev + delta * 1.5));
-        if (keys.current['arrowdown']) setCameraPitch(prev => Math.max(-0.35, prev - delta * 1.5));
+        if (keys.current['arrowleft']) setCameraYaw(prev => prev + delta * 2.2);
+        if (keys.current['arrowright']) setCameraYaw(prev => prev - delta * 2.2);
+        if (keys.current['arrowup']) setCameraPitch(prev => Math.max(-0.60, prev - delta * 1.8));
+        if (keys.current['arrowdown']) setCameraPitch(prev => Math.min(1.05, prev + delta * 1.8));
       }
 
       // 2. INPUT RESOLUTION (WASD / Left Stick)
@@ -515,6 +565,7 @@ export const App: React.FC = () => {
           yaw={cameraYaw}
           pitch={cameraPitch}
           jumpOffset={currentP.jumpY}
+          zoomDist={cameraZoom}
         />
         <AstraTerrain
           playerPos={playerPos}
@@ -530,6 +581,15 @@ export const App: React.FC = () => {
           activeBiome={activeBiome}
           onPropStruck={handlePropStruck}
           onNearPOI={setCurrentPOI}
+        />
+
+        {/* Wind Drift & Falling Leaves Resource Field */}
+        <FallingLeavesField
+          playerPos={playerPos}
+          activeSeason={activeSeason}
+          activeBiome={activeBiome}
+          onGatherLeaf={handleGatherLeaf}
+          onNearLeafPrompt={setNearLeaf}
         />
 
         {/* Player Flesh Golem (Warm Amber) */}
@@ -574,6 +634,8 @@ export const App: React.FC = () => {
         activeSeason={activeSeason}
         activeBiome={activeBiome}
         currentPOI={currentPOI}
+        nearLeaf={nearLeaf}
+        gatheredLeaves={gatheredLeaves}
         onSelectSeason={setActiveSeason}
         onSelectBiome={setActiveBiome}
         onSendMessage={handleSendMessage}
@@ -582,6 +644,15 @@ export const App: React.FC = () => {
         isAutonomousWandering={isAutonomousWander}
         onToggleAutonomousWander={() => setIsAutonomousWander(prev => !prev)}
         onReciteFaerunLore={handleReciteFaerunLore}
+        onOpenInventory={() => setIsInventoryOpen(true)}
+        onGatherNearLeaf={() => nearLeaf && handleGatherLeaf(nearLeaf)}
+      />
+
+      {/* Card-Based D&D Equipment & Encumbrance Inventory Modal */}
+      <CardInventoryModal
+        isOpen={isInventoryOpen}
+        onClose={() => setIsInventoryOpen(false)}
+        gatheredLeaves={gatheredLeaves}
       />
     </div>
   );
