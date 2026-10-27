@@ -516,7 +516,11 @@ export const App: React.FC = () => {
           pitch={cameraPitch}
           jumpOffset={currentP.jumpY}
         />
-        <AstraTerrain playerPos={playerPos} />
+        <AstraTerrain
+          playerPos={playerPos}
+          activeSeason={activeSeason}
+          activeBiome={activeBiome}
+        />
 
         {/* Cardboard Props Field with Topple & Wobble Physics */}
         <CardboardPropField
